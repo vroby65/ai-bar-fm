@@ -4,6 +4,30 @@ File manager **TUI a una sola lista**, ispirato ai tasti funzione di Midnight Co
 
 Il programma è scritto in **Bash 4+**, usa bordi ASCII (`+`, `-`, `|`) e sequenze ANSI per evidenziare la riga corrente. **Niente ncurses, dialog, fzf o dipendenze TUI**: su Linux servono soltanto Bash, `stty` e i comandi GNU di base (`cp`, `mv`, `mkdir`, `rm`).
 
+## Installazione rapida (un comando)
+
+Basta **Bash** e gli strumenti di sistema gia necessari al programma; per il **solo download** serve `curl`. Installa il file eseguibile in `~/.local/bin`, senza `sudo` e senza clonare il repository.
+
+**Fino al merge della PR #1**, usa il branch che contiene gia il programma (una sola riga da copiare):
+
+```sh
+mkdir -p "$HOME/.local/bin" && curl -fsSL "https://raw.githubusercontent.com/vroby65/ai-bar-fm/feat/bash-single-pane-file-manager/ai-bar-fm" -o "$HOME/.local/bin/ai-bar-fm" && chmod 755 "$HOME/.local/bin/ai-bar-fm"
+```
+
+**Dopo il merge in `main`**, usa il comando definitivo (anche per aggiornare una precedente installazione):
+
+```sh
+mkdir -p "$HOME/.local/bin" && curl -fsSL "https://raw.githubusercontent.com/vroby65/ai-bar-fm/main/ai-bar-fm" -o "$HOME/.local/bin/ai-bar-fm" && chmod 755 "$HOME/.local/bin/ai-bar-fm"
+```
+
+Per avviarlo subito, anche se `~/.local/bin` non e ancora nel `PATH`:
+
+```sh
+"$HOME/.local/bin/ai-bar-fm"
+```
+
+Se `ai-bar-fm` non viene riconosciuto direttamente, aggiungi `~/.local/bin` al `PATH` oppure apri un nuovo terminale dopo aver configurato il percorso. Il comando di installazione funziona anche quando la shell interattiva e Fish.
+
 ## Avvio
 
 ```bash
