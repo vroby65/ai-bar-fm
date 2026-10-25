@@ -2,7 +2,7 @@
 
 File manager **TUI a una sola lista**, ispirato ai tasti funzione di Midnight Commander e pensato per una piccola finestra terminale in **ai-bar**.
 
-Il programma è scritto in **Bash 4+**, usa bordi ASCII (`+`, `-`, `|`) e sequenze ANSI per evidenziare la riga corrente. **Niente ncurses, dialog, fzf o dipendenze TUI**: su Linux servono soltanto Bash, `stty` e i comandi GNU di base (`cp`, `mv`, `mkdir`, `rm`).
+Il programma è scritto in **Bash 4+**, usa **mouse xterm/SGR**, colori ANSI e cornici Unicode box-drawing (`┌─┐`, `│ │`, `└─┘`), con fallback ASCII. **Niente ncurses, dialog, fzf o dipendenze TUI**: su Linux servono soltanto Bash, `stty` e i comandi GNU di base (`cp`, `mv`, `mkdir`, `rm`).
 
 ## Installazione rapida (un solo comando)
 
@@ -41,6 +41,13 @@ L'interfaccia richiede un terminale interattivo di almeno **35 colonne × 12 rig
 ABFM_NO_ALT_SCREEN=1 ai-bar-fm
 ```
 
+Per utilizzare l’interfaccia senza colori o con cornici ASCII:
+
+```bash
+ABFM_NO_COLOR=1 ai-bar-fm
+ABFM_ASCII=1 ai-bar-fm
+```
+
 ## Tasti
 
 | Tasto | Azione |
@@ -55,6 +62,10 @@ ABFM_NO_ALT_SCREEN=1 ai-bar-fm
 | PagSu / PagGiù, Home / End | Scorrimento veloce |
 | Invio | Apri directory corrente |
 | Backspace | Vai alla directory padre |
+| Mouse sinistro | Seleziona la riga; un doppio click entra nella directory |
+| Click sull'indicatore di selezione | Seleziona o deseleziona l'elemento |
+| Rotella mouse | Scorre l'elenco |
+| Click sulla barra F3–F8 | Attiva la relativa funzione, anche nella barra compatta |
 | `r` | Aggiorna |
 | `q` | Esci |
 
@@ -73,7 +84,7 @@ Le directory appaiono prima dei file, inclusi gli elementi nascosti. Il simbolo 
 
 ## Integrazione con ai-bar
 
-Avviare `ai-bar-fm` all'interno di **un PTY** integrato o di un emulatore terminale. Il programma usa `/dev/tty`, la modalità non canonica della tastiera, sequenze ANSI standard e (salvo l'opzione sopra) lo schermo alternativo. Non usa GUI e non necessita dell'ambiente desktop. Per la futura integrazione, si potrà aggiungere una modalità selezione che stampa il percorso scelto su stdout.
+Avviare `ai-bar-fm` all'interno di **un PTY** integrato o di un emulatore terminale che supporti le sequenze mouse **xterm SGR (1000/1006)**. Il programma usa `/dev/tty`, la modalità non canonica della tastiera, sequenze ANSI standard e (salvo l'opzione sopra) lo schermo alternativo. Non usa GUI e non necessita dell'ambiente desktop. Per la futura integrazione, si potrà aggiungere una modalità selezione che stampa il percorso scelto su stdout.
 
 ## Test
 
@@ -84,7 +95,7 @@ bash -n ai-bar-fm
 python3 tests/smoke.py
 ```
 
-I test usano uno pseudo-terminale e directory temporanee per controllare selezione multipla/copia, taglia, creazione, cancellazione e mancata sovrascrittura.
+I test usano uno pseudo-terminale e directory temporanee per controllare selezione multipla/copia, taglia, creazione, cancellazione, mancata sovrascrittura, eventi mouse, doppio click, rotella, pulsanti F3–F8 e interazione durante i prompt.
 
 ## Licenza
 
