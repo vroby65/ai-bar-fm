@@ -1,0 +1,15 @@
+name: Test Bash TUI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: bash -n ai-bar-fm
+      - name: PTY smoke tests
+        run: python3 tests/smoke.py
