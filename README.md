@@ -4,6 +4,22 @@ File manager **TUI a una sola lista**, ispirato ai tasti funzione di Midnight Co
 
 Il programma è scritto in **Bash 4+**, usa bordi ASCII (`+`, `-`, `|`) e sequenze ANSI per evidenziare la riga corrente. **Niente ncurses, dialog, fzf o dipendenze TUI**: su Linux servono soltanto Bash, `stty` e i comandi GNU di base (`cp`, `mv`, `mkdir`, `rm`).
 
+## Installazione rapida (un solo comando)
+
+Per scaricare e installare `ai-bar-fm` nella directory utente `~/.local/bin`, senza `sudo`, senza compilare e senza clonare il repository, esegui:
+
+```bash
+mkdir -p "$HOME/.local/bin" && curl -fsSL "https://raw.githubusercontent.com/vroby65/ai-bar-fm/main/ai-bar-fm" -o "$HOME/.local/bin/ai-bar-fm" && chmod +x "$HOME/.local/bin/ai-bar-fm"
+```
+
+Esegui subito il programma con:
+
+```bash
+"$HOME/.local/bin/ai-bar-fm"
+```
+
+Ripetere il comando di installazione scarica la versione aggiornata da `main`. Per il download e' necessario `curl`; il file manager in esecuzione non richiede `curl` ne' librerie TUI. Se `~/.local/bin` e' gia' nel `PATH`, basta digitare `ai-bar-fm` (anche da Fish).
+
 ## Avvio
 
 ```bash
@@ -12,8 +28,6 @@ cd ai-bar-fm
 ./ai-bar-fm
 ./ai-bar-fm "$HOME/Documenti"
 ```
-
-> Finché la PR non è stata unita in `main`, si può provare il branch proposto con `git clone -b feat/bash-single-pane-file-manager https://github.com/vroby65/ai-bar-fm.git`.
 
 Per un'installazione personale, dopo aver ottenuto il sorgente:
 
