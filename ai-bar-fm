@@ -198,8 +198,36 @@ sync_scroll() {
     (( scroll < 0 )) && scroll=0
 }
 
+render_actions() {
+    local -a segs=(
+        '[F3] Selez.' '[F4] Copia' '[F5] Taglia' '[F6] Incolla' '[F7] CreaDir' '[F8] Elimina'
+    )
+    # I comandi restano tutti cliccabili in un terminale stretto.
+    if (( inner < 89 )); then
+        segs=('3Sel' '4Cop' '5Tag' '6Inc' '7Dir' '8Del')
+    fi
+    action_keys=(F3 F4 F5 F6 F7 F8)
+    action_starts=()
+    action_ends=()
+    local content='' seg offset=0 base=2 i start end
+    for i in "${!segs[@]}"; do
+        seg=${segs[i]}
+        if [[ -n $content ]]; then
+            content+='  '
+            ((offset+=2))
+        fi
+        start=$((base + offset))
+        content+=$seg
+        ((offset+=${#seg}))
+        end=$((base + offset - 1))
+        action_starts[i]=$start
+        action_ends[i]=$end
+    done
+    line_text "$content" "$CLR_ACTION"
+}
+
 draw() {
-    local i n kind item label selected
+    local i n kind item label selected row_style
     size
     printf '\033[H\033[2J' >&9
     if (( rows < 12 || cols < 35 )); then
@@ -207,13 +235,15 @@ draw() {
         return
     fi
     sync_scroll
-    border
-    line " ai-bar-fm  $cwd"
-    border
+    items_y=4
+    actions_y=$((visible+5))
+    border top
+    line_text " ai-bar-fm  $cwd" "$CLR_TITLE"
+    border mid
     for ((i=0; i<visible; i++)); do
         n=$((scroll+i))
         if (( n >= ${#entries[@]} )); then
-            line ''
+            line_text ''
             continue
         fi
         item=${entries[n]}
@@ -229,22 +259,21 @@ draw() {
             kind='f'; label="${item##*/}"
         fi
         fit " $selected$kind $label" "$inner"
-        printf '|' >&9
-        (( n == cursor )) && printf '\033[7m' >&9
-        printf '%-*s' "$inner" "$REPLY" >&9
-        (( n == cursor )) && printf '\033[0m' >&9
-        printf '|\r\n' >&9
+        row_style=''
+        (( n == cursor )) && row_style=$CLR_CURSOR
+        line_text "$REPLY" "$row_style"
     done
-    border
-    line ' F3 Selez.  F4 Copia  F5 Taglia  F6 Incolla  F7 CreaDir  F8 Elimina'
-    line " Invio Apri  Backspace Su  Spazio Selez.  r Aggiorna  q Esci  (${#entries[@]} righe)"
-    line " $notice"
-    border
+    border mid
+    render_actions
+    line_text ' Mouse: click seleziona, doppio click apre, rotella scorre. q Esci.' "$CLR_STATUS"
+    line_text " $notice" "$CLR_NOTICE"
+    border bottom
 }
 
 input_key() {
-    local char next code='' n
+    local char next code='' n payload
     KEY=''
+    MOUSE_BTN=0; MOUSE_X=0; MOUSE_Y=0; MOUSE_ACTION=''
     IFS= read -rsn1 -u9 char || return 1
     case $char in
         $'\e')
@@ -253,11 +282,23 @@ input_key() {
             fi
             code=$next
             if [[ $next == '[' || $next == 'O' ]]; then
-                for ((n=0; n<8; n++)); do
+                for ((n=0; n<24; n++)); do
                     IFS= read -rsn1 -t 0.10 -u9 next || break
                     code+=$next
                     [[ $next == [a-zA-Z\~] ]] && break
                 done
+            fi
+            if [[ $code == \[\<* ]]; then
+                payload=${code#\[<}
+                MOUSE_ACTION=${payload: -1}
+                payload=${payload%?}
+                IFS=';' read -r MOUSE_BTN MOUSE_X MOUSE_Y <<< "$payload"
+                if [[ $MOUSE_BTN =~ ^[0-9]+$ && $MOUSE_X =~ ^[0-9]+$ && $MOUSE_Y =~ ^[0-9]+$ ]]; then
+                    KEY='MOUSE'
+                else
+                    KEY='ESC'
+                fi
+                return 0
             fi
             case $code in
                 '[A') KEY='UP';; '[B') KEY='DOWN';; '[H'|'OH'|'[1~'|'[7~') KEY='HOME';;
@@ -288,7 +329,24 @@ ask() {
         IFS= read -rsn1 -u9 ch || return 1
         case $ch in
             ''|$'\r'|$'\n') REPLY=$value; return 0;;
-            $'\e') notice='Operazione annullata.'; return 1;;
+            $'\e')
+                # Scarta sequenze mouse durante i prompt.
+                local next tail k
+                if IFS= read -rsn1 -t 0.08 -u9 next; then
+                    if [[ $next == '[' ]]; then
+                        IFS= read -rsn1 -t 0.08 -u9 tail || { notice='Operazione annullata.'; return 1; }
+                        if [[ $tail == '<' ]]; then
+                            for ((k=0; k<30; k++)); do
+                                IFS= read -rsn1 -t 0.08 -u9 tail || break
+                                [[ $tail == M || $tail == m ]] && break
+                            done
+                            continue
+                        fi
+                    fi
+                fi
+                notice='Operazione annullata.'
+                return 1
+                ;;
             $'\177'|$'\b') value=${value%?};;
             *)
                 if [[ $ch == [[:print:]] && ${#value} -lt 200 ]]; then
