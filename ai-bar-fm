@@ -507,16 +507,57 @@ enter_dir() {
     notice="Directory: $cwd"
 }
 
-reload
-(( ${#entries[@]} > 1 )) && cursor=1
-while :; do
-    draw
-    if ! input_key; then break; fi
-    if (( rows < 12 || cols < 35 )); then
-        [[ $KEY == q || $KEY == Q ]] && break
-        continue
+handle_mouse() {
+    local idx i x y now path relx
+    x=$MOUSE_X
+    y=$MOUSE_Y
+    if (( MOUSE_BTN == 64 )); then
+        ((cursor > 0)) && ((cursor-=1))
+        notice='Rotella su.'
+        return
     fi
-    case $KEY in
+    if (( MOUSE_BTN == 65 )); then
+        ((cursor + 1 < ${#entries[@]})) && ((cursor+=1))
+        notice='Rotella giu.'
+        return
+    fi
+    [[ $MOUSE_ACTION != M ]] && return
+    (( MOUSE_BTN != 0 )) && return
+    if (( y >= items_y && y < items_y + visible )); then
+        idx=$((scroll + y - items_y))
+        if (( idx >= 0 && idx < ${#entries[@]} )); then
+            cursor=$idx
+            relx=$((x - 1))
+            if (( relx >= 2 && relx <= 4 )) && [[ ${entries[idx]} != '..' ]]; then
+                select_current
+                return
+            fi
+            path=${entries[idx]}
+            now=$(now_millis)
+            if [[ $path == "$last_click_path" ]] && (( now - last_click_ms < 450 )); then
+                last_click_ms=0
+                last_click_path=''
+                enter_dir
+                return
+            fi
+            last_click_ms=$now
+            last_click_path=$path
+            notice='Riga selezionata con mouse.'
+        fi
+        return
+    fi
+    if (( y == actions_y )); then
+        for i in "${!action_keys[@]}"; do
+            if (( x >= action_starts[i] && x <= action_ends[i] )); then
+                KEY=${action_keys[i]}
+                return
+            fi
+        done
+    fi
+}
+
+perform_key() {
+    case $1 in
         UP|k) ((cursor>0)) && ((cursor-=1));;
         DOWN|j) ((cursor+1<${#entries[@]})) && ((cursor+=1));;
         PAGEUP) ((cursor-=visible)); ((cursor<0)) && cursor=0;;
@@ -532,7 +573,29 @@ while :; do
         F7) new_dir;;
         F8) delete_items;;
         r|R) reload; notice='Elenco aggiornato.';;
-        q|Q) break;;
         ESC) notice='Premi q per uscire.';;
+        q|Q) return 1;;
+        *) ;;
     esac
+    return 0
+}
+
+reload
+(( ${#entries[@]} > 1 )) && cursor=1
+while :; do
+    draw
+    if ! input_key; then break; fi
+    if (( rows < 12 || cols < 35 )); then
+        [[ $KEY == q || $KEY == Q ]] && break
+        continue
+    fi
+    if [[ $KEY == MOUSE ]]; then
+        KEY=''
+        handle_mouse
+        [[ -n $KEY ]] && perform_key "$KEY" || true
+        continue
+    fi
+    if ! perform_key "$KEY"; then
+        break
+    fi
 done
