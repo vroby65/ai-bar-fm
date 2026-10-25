@@ -7,7 +7,7 @@ usage() {
     cat <<'HELP'
 Uso: ai-bar-fm [DIRECTORY]
 
-File manager TUI a pannello singolo (ASCII, senza ncurses).
+File manager TUI a pannello singolo (Bash, senza ncurses).
 
  Frecce / PgUp / PgDn / Home / End   navigazione
  Invio                            entra nella directory
@@ -18,11 +18,15 @@ File manager TUI a pannello singolo (ASCII, senza ncurses).
  F6                               incolla nella directory corrente
  F7                               crea una directory
  F8                               cancella (chiede conferma)
+ Mouse click                      seleziona / doppio click apre
+ Rotella mouse                    scorre l'elenco
  r                                aggiorna la lista
  q                                esci
 
 Opzioni d'ambiente:
  ABFM_NO_ALT_SCREEN=1             non usare lo schermo alternativo
+ ABFM_NO_COLOR=1                  disabilita i colori ANSI
+ ABFM_ASCII=1                     forza cornici ASCII al posto del box drawing
 HELP
 }
 
@@ -52,10 +56,49 @@ exec 9<>/dev/tty
 original_tty=$(stty -g <&9) || exit 1
 alt_screen=1
 [[ ${ABFM_NO_ALT_SCREEN:-0} == 1 ]] && alt_screen=0
+mouse_enabled=0
+declare -a entries=() clipboard=() targets=()
+declare -A marks=()
+declare -a action_keys=() action_starts=() action_ends=()
+clipboard_mode=''
+notice='Pronto. F3 seleziona, mouse attivo, Invio apre, q esce.'
+cursor=0
+scroll=0
+rows=24 cols=80 visible=12 inner=78
+items_y=4
+actions_y=0
+last_click_ms=0
+last_click_path=''
+MOUSE_BTN=0; MOUSE_X=0; MOUSE_Y=0; MOUSE_ACTION=''
+USE_COLOR=1; USE_UNICODE=1
+CLR_RESET='' CLR_BORDER='' CLR_TITLE='' CLR_STATUS='' CLR_NOTICE='' CLR_CURSOR='' CLR_ACTION=''
+C_TL='+' C_TR='+' C_BL='+' C_BR='+' C_H='-' C_V='|' C_LT='+' C_RT='+'
+init_theme() {
+    local locale=${LC_ALL:-${LC_CTYPE:-${LANG:-}}}
+    USE_COLOR=1; USE_UNICODE=1
+    [[ -n ${NO_COLOR:-} || ${ABFM_NO_COLOR:-0} == 1 || ${TERM:-} == dumb ]] && USE_COLOR=0
+    [[ ${ABFM_ASCII:-0} == 1 ]] && USE_UNICODE=0
+    [[ $locale != *UTF-8* && $locale != *utf8* && $locale != *utf-8* ]] && USE_UNICODE=0
+    if (( USE_COLOR )); then
+        CLR_RESET=$'\033[0m'
+        CLR_BORDER=$'\033[38;5;39m'
+        CLR_TITLE=$'\033[1;38;5;117m'
+        CLR_STATUS=$'\033[38;5;150m'
+        CLR_NOTICE=$'\033[38;5;223m'
+        CLR_CURSOR=$'\033[48;5;24;38;5;231m'
+        CLR_ACTION=$'\033[1;38;5;81m'
+    fi
+    if (( USE_UNICODE )); then
+        C_TL='┌'; C_TR='┐'; C_BL='└'; C_BR='┘'; C_H='─'; C_V='│'; C_LT='├'; C_RT='┤'
+    fi
+}
 cleanup() {
     trap - EXIT INT TERM HUP WINCH
     stty "$original_tty" <&9 2>/dev/null || :
-    printf '\033[0m\033[?25h' >&9
+    if (( mouse_enabled )); then
+        printf '\033[?1000l\033[?1006l' >&9
+    fi
+    printf '%s\033[?25h' "$CLR_RESET" >&9
     (( alt_screen )) && printf '\033[?1049l' >&9
     exec 9>&-
 }
@@ -65,20 +108,13 @@ trap 'exit 143' TERM
 trap 'exit 129' HUP
 trap ':' WINCH
 stty -echo -icanon -icrnl min 1 time 0 <&9 || exit 1
+init_theme
 (( alt_screen )) && printf '\033[?1049h' >&9
 printf '\033[?25l' >&9
+printf '\033[?1000h\033[?1006h' >&9
+mouse_enabled=1
 shopt -s nullglob dotglob
 
-declare -a entries=() clipboard=() targets=()
-declare -A marks=()
-clipboard_mode=''
-notice='Pronto. F3 seleziona, Invio apre, q esce.'
-cursor=0
-scroll=0
-rows=24 cols=80 visible=12 inner=78
-
-# Sanitizza i nomi per impedire a caratteri di controllo presenti nei file di
-# alterare il terminale. Si usano soltanto le built-in di Bash.
 safe() {
     local value=$1
     value=${value//[$'\001'-$'\037'$'\177']/\?}
@@ -99,16 +135,24 @@ fit() {
     fi
 }
 
-line() {
-    local s=$1
+line_text() {
+    local s=$1 style=${2:-}
     fit "$s" "$inner"
-    printf '|%-*s|\r\n' "$inner" "$REPLY" >&9
+    printf '%s%s%s' "$CLR_BORDER" "$C_V" "$CLR_RESET" >&9
+    [[ -n $style ]] && printf '%s' "$style" >&9
+    printf '%-*s' "$inner" "$REPLY" >&9
+    printf '%s%s%s\r\n' "$CLR_RESET" "$CLR_BORDER$C_V" "$CLR_RESET" >&9
 }
-
 border() {
-    local d
+    local kind=${1:-mid} left right d
     printf -v d '%*s' "$inner" ''
-    printf '+%s+\r\n' "${d// /-}" >&9
+    d=${d// /$C_H}
+    case $kind in
+        top) left=$C_TL; right=$C_TR ;;
+        bottom) left=$C_BL; right=$C_BR ;;
+        *) left=$C_LT; right=$C_RT ;;
+    esac
+    printf '%s%s%s%s%s\r\n' "$CLR_BORDER" "$left" "$d" "$right" "$CLR_RESET" >&9
 }
 
 size() {
@@ -118,6 +162,19 @@ size() {
     [[ $rows =~ ^[0-9]+$ && $cols =~ ^[0-9]+$ ]] || { rows=24; cols=80; }
     inner=$((cols-2))
     visible=$((rows-8))
+}
+
+now_millis() {
+    local sec frac
+    if [[ -n ${EPOCHREALTIME:-} ]]; then
+        sec=${EPOCHREALTIME%.*}
+        frac=${EPOCHREALTIME#*.}
+        frac=${frac:0:3}
+        while (( ${#frac} < 3 )); do frac+="0"; done
+        printf '%s\n' "$((10#$sec * 1000 + 10#$frac))"
+    else
+        date +%s%3N
+    fi
 }
 
 reload() {
