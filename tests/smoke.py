@@ -6,6 +6,7 @@ import fcntl
 import os
 import pathlib
 import pty
+import subprocess
 import struct
 import tempfile
 import termios
@@ -22,6 +23,8 @@ DOWN = b"\x1b[B"
 UP = b"\x1b[A"
 END = b"\x1b[F"
 BACK = b"\x7f"
+RIGHT = b"\x1b[C"
+LEFT = b"\x1b[D"
 ENTER = b"\r"
 
 
@@ -203,7 +206,7 @@ def test_mouse_double_click_opens_folder():
         try:
             assert b"\x1b[?1000h\x1b[?1006h" in s.output, "Mouse non attivato"
             assert "┌".encode() in s.output, "Cornici Unicode mancanti"
-            assert b"\x1b[0;37;44m" in s.output, "Palette classica MC mancante"
+            assert b"\x1b[38;5;252;48;5;240m" in s.output, "Palette classica MC mancante"
             s.mouse(0, 10, 5)
             s.mouse(0, 10, 5)
             s.key(F7)
@@ -275,7 +278,7 @@ def test_mouse_compact_bar_and_wheel():
 
 
 
-def test_mc_palette_and_highlighting():
+def test_gray_palette_and_highlighting():
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         (root / "dir").mkdir()
@@ -288,15 +291,15 @@ def test_mc_palette_and_highlighting():
         s = Session(root)
         try:
             out = bytes(s.output)
-            assert b"\x1b[0;37;44m" in out, "Sfondo blu / grigio mancante"
-            assert b"\x1b[0;30;46m" in out, "Selezione nero / ciano mancante"
-            assert b"\x1b[1;37;44m" in out, "Directory bianche mancanti"
-            assert b"\x1b[1;32;44m" in out, "Eseguibili verdi mancanti"
-            assert b"\x1b[0;36;44m" in out, "Link ciano mancanti"
-            assert b"\x1b[1;31;44m" in out, "Link interrotti rossi mancanti"
-            assert b"\x1b[0;37;40m" in out, "Barra nera comandi mancante"
+            assert b"\x1b[38;5;252;48;5;240m" in out, "Sfondo blu / grigio mancante"
+            assert b"\x1b[38;5;232;48;5;250m" in out, "Selezione nero / ciano mancante"
+            assert b"\x1b[1;38;5;255;48;5;240m" in out, "Directory bianche mancanti"
+            assert b"\x1b[38;5;120;48;5;240m" in out, "Eseguibili verdi mancanti"
+            assert b"\x1b[38;5;117;48;5;240m" in out, "Link ciano mancanti"
+            assert b"\x1b[38;5;210;48;5;240m" in out, "Link interrotti rossi mancanti"
+            assert b"\x1b[38;5;254;48;5;236m" in out, "Barra nera comandi mancante"
             s.key(F3)
-            assert b"\x1b[1;33;46m" in s.output, "Selezione marcata gialla mancante"
+            assert b"\x1b[1;38;5;130;48;5;250m" in s.output, "Selezione marcata gialla mancante"
         finally:
             s.close()
 
@@ -305,9 +308,9 @@ def test_no_color_fallback():
     with tempfile.TemporaryDirectory() as tmp:
         s = Session(pathlib.Path(tmp), env={"ABFM_NO_COLOR": "1"})
         try:
-            assert b"\x1b[0;37;44m" not in s.output
-            assert b"\x1b[0;30;46m" not in s.output
-            assert b"\x1b[0;37;40m" not in s.output
+            assert b"\x1b[38;5;252;48;5;240m" not in s.output
+            assert b"\x1b[38;5;232;48;5;250m" not in s.output
+            assert b"\x1b[38;5;254;48;5;236m" not in s.output
             assert "┌".encode() in s.output
         finally:
             s.close()
@@ -380,15 +383,69 @@ def test_no_flicker_on_cursor_navigation():
 
 
 
+
+def test_lynx_arrows_enter_and_back():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "a_directory").mkdir()
+        (root / "a_directory" / "inside.txt").write_text("ok")
+        (root / "b_directory").mkdir()
+        session = Session(root)
+        try:
+            session.key(RIGHT)
+            assert b"inside.txt" in session.output, "Destra non apre la directory"
+            session.key(LEFT)
+            assert b"/b_directory" in session.output, "Sinistra non torna al padre"
+            session.key(DOWN)
+            session.key(RIGHT)
+            assert b"/b_directory" in session.output
+            session.key(LEFT)
+            assert b"/a_directory" in session.output
+        finally:
+            session.close()
+
+
+def test_millis_italian_decimal_comma():
+    source = pathlib.Path(SCRIPT).read_text()
+    start = source.index("now_millis() {\n")
+    end = source.index("\nreload() {", start)
+    func = source[start:end]
+    for stamp, expected in (("1793001314,090467", "1793001314090"),
+                            ("1793001314.090467", "1793001314090"),
+                            ("1793001314,009467", "1793001314009")):
+        shell = "unset EPOCHREALTIME; EPOCHREALTIME='" + stamp + "'\n" + func + "\nnow_millis\n"
+        result = subprocess.run(["bash", "-c", shell], capture_output=True, text=True, check=True)
+        assert result.stdout.strip() == expected, (stamp, result.stdout, result.stderr)
+        assert not result.stderr
+
+
+def test_repeated_clicks_no_crash():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "afile.txt").write_text("test")
+        (root / "adir").mkdir()
+        session = Session(root)
+        try:
+            for _ in range(10):
+                session.mouse(0, 10, 6)
+            session.key(LEFT)
+            assert b"valore troppo grande" not in session.output
+            assert b"value too great" not in session.output
+        finally:
+            session.close()
+
+
 if __name__ == "__main__":
     tests = [test_copy_multiple, test_cut_move, test_mkdir_and_delete, test_no_overwrite,
              test_filename_with_spaces, test_delete_cancelled, test_no_copy_into_self,
              test_mouse_double_click_opens_folder, test_mouse_button_mkdir,
              test_mouse_prompt_ignores_click, test_mouse_mark_copy,
-             test_mouse_compact_bar_and_wheel, test_mc_palette_and_highlighting,
+             test_mouse_compact_bar_and_wheel, test_gray_palette_and_highlighting,
              test_no_color_fallback, test_ascii_fallback,
              test_hidden_and_mc_directory_prefix, test_mouse_exact_columns_and_rows,
-             test_no_flicker_on_cursor_navigation]
+             test_no_flicker_on_cursor_navigation,
+             test_lynx_arrows_enter_and_back, test_millis_italian_decimal_comma,
+             test_repeated_clicks_no_crash]
     for test in tests:
         test()
         print(f"OK {test.__name__}")

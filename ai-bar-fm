@@ -9,9 +9,10 @@ Uso: ai-bar-fm [DIRECTORY]
 
 File manager TUI a pannello singolo (Bash, senza ncurses).
 
- Frecce / PgUp / PgDn / Home / End   navigazione
- Invio                            entra nella directory
- Backspace                        torna alla directory padre
+ Frecce Su/Giu                   seleziona la riga (stile Lynx)
+ Freccia Destra / Invio           entra nella directory
+ Freccia Sinistra / Backspace     torna alla directory padre
+ PgUp / PgDn / Home / End         navigazione veloce
  F3 (oppure Spazio)              seleziona/deseleziona
  F4                               copia negli appunti interni
  F5                               taglia negli appunti interni
@@ -61,7 +62,7 @@ declare -a entries=() clipboard=() targets=()
 declare -A marks=()
 declare -a action_keys=() action_starts=() action_ends=()
 clipboard_mode=''
-notice='Pronto. F3 seleziona, mouse attivo, Invio apre, q esce.'
+notice='Lynx: Su/Giu scegli, Destra apre, Sinistra torna. q esce.'
 cursor=0
 scroll=0
 rows=24 cols=80 visible=12 inner=78
@@ -85,23 +86,24 @@ init_theme() {
     [[ -n ${NO_COLOR:-} || ${ABFM_NO_COLOR:-0} == 1 || ${TERM:-} == dumb ]] && USE_COLOR=0
     [[ ${ABFM_ASCII:-0} == 1 ]] && USE_UNICODE=0
     [[ $locale != *UTF-8* && $locale != *utf8* && $locale != *utf-8* ]] && USE_UNICODE=0
-    # Colori classici MC, ANSI 16 colori.
+    # Palette neutra grigia con colori per tipo file, ANSI 256 colori.
     if (( USE_COLOR )); then
         CLR_RESET=$'\033[0m'
-        CLR_PANEL=$'\033[0;37;44m'
-        CLR_BORDER=$'\033[0;37;44m'
-        CLR_TITLE=$'\033[1;37;44m'
-        CLR_DIR=$'\033[1;37;44m'
-        CLR_EXEC=$'\033[1;32;44m'
-        CLR_LINK=$'\033[0;36;44m'
-        CLR_BADLINK=$'\033[1;31;44m'
-        CLR_MARKED=$'\033[1;33;44m'
-        CLR_CURSOR=$'\033[0;30;46m'
-        CLR_MARK_CURSOR=$'\033[1;33;46m'
-        CLR_STATUS=$'\033[0;30;47m'
-        CLR_NOTICE=$'\033[1;37;44m'
-        CLR_FOOTER=$'\033[0;37;40m'
-        CLR_HOTKEY=$'\033[0;30;46m'
+        # Tema grigio neutro: pannello grafite, evidenziazione chiara.
+        CLR_PANEL=$'\033[38;5;252;48;5;240m'
+        CLR_BORDER=$'\033[38;5;252;48;5;240m'
+        CLR_TITLE=$'\033[1;38;5;255;48;5;240m'
+        CLR_DIR=$'\033[1;38;5;255;48;5;240m'
+        CLR_EXEC=$'\033[38;5;120;48;5;240m'
+        CLR_LINK=$'\033[38;5;117;48;5;240m'
+        CLR_BADLINK=$'\033[38;5;210;48;5;240m'
+        CLR_MARKED=$'\033[1;38;5;228;48;5;240m'
+        CLR_CURSOR=$'\033[38;5;232;48;5;250m'
+        CLR_MARK_CURSOR=$'\033[1;38;5;130;48;5;250m'
+        CLR_STATUS=$'\033[38;5;236;48;5;250m'
+        CLR_NOTICE=$'\033[38;5;255;48;5;240m'
+        CLR_FOOTER=$'\033[38;5;254;48;5;236m'
+        CLR_HOTKEY=$'\033[38;5;232;48;5;250m'
     fi
 
     if (( USE_UNICODE )); then
@@ -185,15 +187,20 @@ size() {
 }
 
 now_millis() {
-    local sec frac
-    if [[ -n ${EPOCHREALTIME:-} ]]; then
-        sec=${EPOCHREALTIME%.*}
-        frac=${EPOCHREALTIME#*.}
+    # EPOCHREALTIME segue LC_NUMERIC: in italiano puo' usare la virgola!
+    # Non interpretare la stringa originale come intero Bash (bug riga 194).
+    local stamp=${EPOCHREALTIME:-} sec frac
+    stamp=${stamp/,/.}
+    if [[ $stamp =~ ^([0-9]+)\.([0-9]{1,6})$ ]]; then
+        sec=${BASH_REMATCH[1]}
+        frac=${BASH_REMATCH[2]}
         frac=${frac:0:3}
         while (( ${#frac} < 3 )); do frac+="0"; done
         printf '%s\n' "$((10#$sec * 1000 + 10#$frac))"
     else
-        date +%s%3N
+        # Bash < 5 o orologio non disponibile: secondi dal printf builtin.
+        printf -v sec '%(%s)T' -1
+        printf '%s\n' "$((10#$sec * 1000))"
     fi
 }
 
@@ -319,7 +326,7 @@ draw() {
         printf '\033[%d;1H' "$((visible+4))" >&9
         border mid
         render_actions
-        line_text ' Mouse: click seleziona, doppio click apre, rotella scorre. q Esci.' "$CLR_STATUS"
+        line_text ' Lynx: Su/Giu scegli, Destra entra, Sinistra torna. Mouse attivo; q Esci.' "$CLR_STATUS"
         line_text " $notice" "$CLR_NOTICE"
         border bottom
         needs_full=0
@@ -368,7 +375,7 @@ input_key() {
                 return 0
             fi
             case $code in
-                '[A') KEY='UP';; '[B') KEY='DOWN';; '[H'|'OH'|'[1~'|'[7~') KEY='HOME';;
+                '[A') KEY='UP';; '[B') KEY='DOWN';; '[C') KEY='RIGHT';; '[D') KEY='LEFT';; '[H'|'OH'|'[1~'|'[7~') KEY='HOME';;
                 '[F'|'OF'|'[4~'|'[8~') KEY='END';;
                 '[5~') KEY='PAGEUP';; '[6~') KEY='PAGEDOWN';;
                 'OR'|'[13~'|'[[C') KEY='F3';;
@@ -632,8 +639,8 @@ perform_key() {
         PAGEDOWN) ((cursor+=visible)); ((cursor>=${#entries[@]})) && cursor=$((${#entries[@]}-1));;
         HOME) cursor=0;;
         END) cursor=$((${#entries[@]}-1));;
-        ENTER) enter_dir;;
-        BACK) cwd=$(cd -P -- "$cwd/.." && pwd -P); cursor=1; scroll=0; reload;;
+        ENTER|RIGHT|l) enter_dir;;
+        LEFT|h|BACK) cwd=$(cd -P -- "$cwd/.." && pwd -P); cursor=1; scroll=0; reload;;
         F3) select_current;;
         F4) save_clipboard copy;;
         F5) save_clipboard cut;;
