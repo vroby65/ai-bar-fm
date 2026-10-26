@@ -10,7 +10,7 @@ Uso: ai-bar-fm [DIRECTORY]
 File manager TUI a pannello singolo (Bash, senza ncurses).
 
  Frecce Su/Giu                   seleziona la riga (stile Lynx)
- Freccia Destra / Invio           entra nella directory
+ Freccia Destra / Invio           apre dir o avvia file eseguibile
  Freccia Sinistra / Backspace     torna alla directory padre
  PgUp / PgDn / Home / End         navigazione veloce
  F3 (oppure Spazio)              seleziona/deseleziona
@@ -19,6 +19,9 @@ File manager TUI a pannello singolo (Bash, senza ncurses).
  F6                               incolla nella directory corrente
  F7                               crea una directory
  F8                               cancella (chiede conferma)
+ Ctrl+X poi C                     chmod: cambia permessi (ottale)
+ Ctrl+X poi O                     chown: cambia proprietario[:gruppo]
+ Ctrl+X poi S                     crea link simbolico all'elemento
  Mouse click                      seleziona / doppio click apre
  Rotella mouse                    scorre l'elenco
  r                                aggiorna la lista
@@ -390,6 +393,16 @@ input_key() {
         ''|$'\r'|$'\n') KEY='ENTER';;
         $'\177'|$'\b') KEY='BACK';;
         ' ') KEY='F3';;
+        $'\030')
+            # Sequenza MC: Ctrl+X poi C, O o S.
+            IFS= read -rsn1 -u9 next || return 1
+            case $next in
+                c|C) KEY='CHMOD';;
+                o|O) KEY='CHOWN';;
+                s|S) KEY='SYMLINK';;
+                *) KEY='BAD_CHORD';;
+            esac
+            ;;
         *) KEY=$char;;
     esac
 }
@@ -564,6 +577,99 @@ delete_items() {
     notice="Eliminati: $count. Errori: $errors."
 }
 
+# Libera il terminale per eseguire un programma interattivo.
+run_executable() {
+    local path=${entries[cursor]} status
+    if [[ $path == '..' || ! -f $path || ! -x $path ]]; then
+        notice="Il file selezionato non e' un eseguibile."
+        return
+    fi
+    printf '\033[?1000l\033[?1006l\033[?25h%s' "$CLR_RESET" >&9
+    (( alt_screen )) && printf '\033[?1049l' >&9
+    stty "$original_tty" <&9 || return
+    printf '\r\nai-bar-fm: esecuzione di %s\r\n' "${path##*/}" >&9
+    # Invocazione diretta senza eval e senza interpolare il nome.
+    (cd -- "$cwd" && "$path") <&9 >&9 2>&9
+    status=$?
+    printf '\r\n[Uscita: %d] Premi Invio per tornare al file manager...' "$status" >&9
+    IFS= read -r -u9 _unused || :
+    stty -echo -icanon -icrnl min 1 time 0 <&9 || return
+    (( alt_screen )) && printf '\033[?1049h' >&9
+    printf '\033[?25l\033[?1000h\033[?1006h' >&9
+    needs_full=1
+    notice="Eseguito: ${path##*/} (codice $status)."
+}
+
+chmod_items() {
+    local mode path changed=0 failed=0
+    collect
+    if (( ${#targets[@]} == 0 )); then notice='Nessun elemento selezionato.'; return; fi
+    if ! ask "chmod su ${#targets[@]} elemento/i (es. 755; Esc annulla): "; then return; fi
+    mode=$REPLY
+    if [[ ! $mode =~ ^[0-7]{3,4}$ ]]; then
+        notice='Permessi non validi: usare 3 o 4 cifre ottali (es. 644, 0755).'
+        return
+    fi
+    for path in "${targets[@]}"; do
+        # I link vengono saltati: chmod li seguirebbe e cambierebbe il target.
+        if [[ -L $path ]]; then
+            ((failed+=1))
+        elif chmod -- "$mode" "$path" 2>/dev/null; then
+            ((changed+=1))
+        else
+            ((failed+=1))
+        fi
+    done
+    reload
+    notice="chmod $mode: modificati $changed, non riusciti $failed."
+}
+
+chown_items() {
+    local owner path changed=0 failed=0
+    collect
+    if (( ${#targets[@]} == 0 )); then notice='Nessun elemento selezionato.'; return; fi
+    if ! ask "chown su ${#targets[@]} elemento/i (utente[:gruppo]; Esc annulla): "; then return; fi
+    owner=$REPLY
+    if [[ -z $owner || $owner == *[[:space:]]* || $owner == */* || $owner == ':' ]]; then
+        notice='Proprietario/gruppo non valido.'
+        return
+    fi
+    for path in "${targets[@]}"; do
+        if chown -- "$owner" "$path" 2>/dev/null; then
+            ((changed+=1))
+        else
+            ((failed+=1))
+        fi
+    done
+    reload
+    notice="chown $owner: modificati $changed, non riusciti $failed (verifica permessi)."
+}
+
+create_symlink() {
+    local path=${entries[cursor]} name
+    if [[ $path == '..' ]]; then
+        notice='Seleziona un file o una directory per il link.'
+        return
+    fi
+    if ! ask "Nome del link simbolico a ${path##*/} (Esc annulla): "; then return; fi
+    name=$REPLY
+    if [[ -z $name || $name == '.' || $name == '..' || $name == */* ]]; then
+        notice='Nome del link non valido (una sola componente).'
+        return
+    fi
+    if [[ -e $cwd/$name || -L $cwd/$name ]]; then
+        notice="Esiste gia' un file o link con questo nome."
+        return
+    fi
+    # Link relativo alla directory: punta al nome originale.
+    if ln -s -- "${path##*/}" "$cwd/$name" 2>/dev/null; then
+        reload
+        notice="Creato link $name -> ${path##*/}"
+    else
+        notice='Creazione link non riuscita (permessi?).'
+    fi
+}
+
 enter_dir() {
     local path=${entries[cursor]}
     if [[ $path == '..' ]]; then
@@ -573,8 +679,11 @@ enter_dir() {
             notice='Impossibile entrare nella directory.'
             return
         fi
+    elif [[ -f $path && -x $path ]]; then
+        run_executable
+        return
     else
-        notice="Non e' una directory."
+        notice="Non e' una directory o un file eseguibile."
         return
     fi
     cursor=1; scroll=0
@@ -647,6 +756,10 @@ perform_key() {
         F6) paste;;
         F7) new_dir;;
         F8) delete_items;;
+        CHMOD) chmod_items;;
+        CHOWN) chown_items;;
+        SYMLINK) create_symlink;;
+        BAD_CHORD) notice='Ctrl+X: usare C per chmod, O per chown, S per link.';;
         r|R) reload; notice='Elenco aggiornato.';;
         ESC) notice='Premi q per uscire.';;
         q|Q) return 1;;
