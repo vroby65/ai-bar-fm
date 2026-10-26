@@ -72,6 +72,8 @@ last_click_path=''
 MOUSE_BTN=0; MOUSE_X=0; MOUSE_Y=0; MOUSE_ACTION=''
 USE_COLOR=1; USE_UNICODE=1
 CLR_RESET='' CLR_BORDER='' CLR_TITLE='' CLR_STATUS='' CLR_NOTICE='' CLR_CURSOR='' CLR_ACTION=''
+CLR_PANEL='' CLR_DIR='' CLR_EXEC='' CLR_LINK='' CLR_BADLINK=''
+CLR_MARKED='' CLR_MARK_CURSOR='' CLR_FOOTER='' CLR_HOTKEY=''
 C_TL='+' C_TR='+' C_BL='+' C_BR='+' C_H='-' C_V='|' C_LT='+' C_RT='+'
 init_theme() {
     local locale=${LC_ALL:-${LC_CTYPE:-${LANG:-}}}
@@ -79,15 +81,25 @@ init_theme() {
     [[ -n ${NO_COLOR:-} || ${ABFM_NO_COLOR:-0} == 1 || ${TERM:-} == dumb ]] && USE_COLOR=0
     [[ ${ABFM_ASCII:-0} == 1 ]] && USE_UNICODE=0
     [[ $locale != *UTF-8* && $locale != *utf8* && $locale != *utf-8* ]] && USE_UNICODE=0
+    # Colori classici MC, ANSI 16 colori.
     if (( USE_COLOR )); then
         CLR_RESET=$'\033[0m'
-        CLR_BORDER=$'\033[38;5;39m'
-        CLR_TITLE=$'\033[1;38;5;117m'
-        CLR_STATUS=$'\033[38;5;150m'
-        CLR_NOTICE=$'\033[38;5;223m'
-        CLR_CURSOR=$'\033[48;5;24;38;5;231m'
-        CLR_ACTION=$'\033[1;38;5;81m'
+        CLR_PANEL=$'\033[0;37;44m'
+        CLR_BORDER=$'\033[0;37;44m'
+        CLR_TITLE=$'\033[1;37;44m'
+        CLR_DIR=$'\033[1;37;44m'
+        CLR_EXEC=$'\033[1;32;44m'
+        CLR_LINK=$'\033[0;36;44m'
+        CLR_BADLINK=$'\033[1;31;44m'
+        CLR_MARKED=$'\033[1;33;44m'
+        CLR_CURSOR=$'\033[0;30;46m'
+        CLR_MARK_CURSOR=$'\033[1;33;46m'
+        CLR_STATUS=$'\033[0;30;47m'
+        CLR_NOTICE=$'\033[1;37;44m'
+        CLR_FOOTER=$'\033[0;37;40m'
+        CLR_HOTKEY=$'\033[0;30;46m'
     fi
+
     if (( USE_UNICODE )); then
         C_TL='┌'; C_TR='┐'; C_BL='└'; C_BR='┘'; C_H='─'; C_V='│'; C_LT='├'; C_RT='┤'
     fi
@@ -138,10 +150,9 @@ fit() {
 line_text() {
     local s=$1 style=${2:-}
     fit "$s" "$inner"
-    printf '%s%s%s' "$CLR_BORDER" "$C_V" "$CLR_RESET" >&9
-    [[ -n $style ]] && printf '%s' "$style" >&9
+    printf '%s%s%s' "$CLR_BORDER" "$C_V" "${style:-$CLR_PANEL}" >&9
     printf '%-*s' "$inner" "$REPLY" >&9
-    printf '%s%s%s\r\n' "$CLR_RESET" "$CLR_BORDER$C_V" "$CLR_RESET" >&9
+    printf '%s%s%s\r\n' "$CLR_BORDER" "$C_V" "$CLR_RESET" >&9
 }
 border() {
     local kind=${1:-mid} left right d
