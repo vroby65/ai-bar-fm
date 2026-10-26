@@ -74,8 +74,9 @@ Il calcolo dei millisecondi per riconoscere il doppio clic normalizza `EPOCHREAL
 | **F6** | Incolla nella directory visualizzata |
 | **F7** | Crea directory (digitare il nome e premere Invio) |
 | **F8** | Elimina file e directory selezionati, dopo conferma (`s`) |
-| **Ctrl+X**, poi **C** | `chmod`: cambia i permessi ottali di file o directory marcati, oppure correnti |
-| **Ctrl+X**, poi **O** | `chown`: cambia utente o utente:gruppo dei file marcati, oppure correnti |
+| **F10** | Esce dal file manager e ripristina il terminale |
+| **Ctrl+X**, poi **C** | Apre la finestra `chmod` con caselle rwx e immissione ottale |
+| **Ctrl+X**, poi **O** | Apre la finestra `chown` con campi proprietario e gruppo |
 | **Ctrl+X**, poi **S** | `ln -s`: crea nella directory corrente un link simbolico al file/directory evidenziato |
 | ↑ / ↓, `j` / `k` | Muovi il cursore |
 | PagSu / PagGiù, Home / End | Scorrimento veloce |
@@ -84,9 +85,9 @@ Il calcolo dei millisecondi per riconoscere il doppio clic normalizza `EPOCHREAL
 | Mouse sinistro | Seleziona la riga; un doppio click apre una directory oppure esegue il file avviabile |
 | Click sull'indicatore di selezione (colonna 3) | Seleziona o deseleziona l'elemento; il bordo esterno non è cliccabile |
 | Rotella mouse | Scorre l'elenco |
-| Click sulla barra F3–F8 | Attiva la relativa funzione, anche nella barra compatta |
+| Click sulla barra F3–F10 | Attiva la relativa funzione, anche nella barra compatta |
 | `r` | Aggiorna |
-| `q` | Esci |
+| `q` | Esci (alternativa a F10) |
 
 Le directory appaiono prima dei file e hanno **`/` davanti al nome** (per esempio `/Documenti`), secondo la convenzione visiva di MC. I file e le directory **nascosti (`.nome`) sono visibili per impostazione predefinita**. Il simbolo `@` indica un collegamento simbolico. La riga `/..` permette di tornare al livello precedente. I segni di selezione vengono azzerati quando si cambia directory, ma gli appunti restano disponibili finché l'applicazione è aperta.
 
@@ -96,9 +97,9 @@ Premendo **Invio** oppure **freccia destra** su un file regolare con permesso di
 
 Le scorciatoie **Ctrl+X, C/O/S** sono *sequenze*, non tre tasti tenuti contemporaneamente: premere `Ctrl+X`, rilasciare, quindi `c`, `o` oppure `s`.
 
-- **chmod** accetta soltanto valori ottali di tre o quattro cifre (per esempio `755` o `0644`), senza ricorsione. Non modifica le destinazioni dei link simbolici: tali link vengono saltati.
-- **chown** accetta `utente` o `utente:gruppo` (anche identificatori numerici), senza ricorsione e **senza usare sudo**. Se non hai i privilegi necessari, l'operazione viene segnalata come non riuscita.
-- **Link simbolico** richiede il nome del nuovo link, creato nella **stessa cartella** del file selezionato con destinazione relativa. Il programma non sovrascrive link o file preesistenti.
+- **chmod** presenta una finestra ispirata a MC con nove caselle **r/w/x** (Utente, Gruppo, Altri) e anteprima dei permessi. Frecce per spostarsi, **Spazio** per cambiare una casella; si possono anche digitare direttamente tre o quattro cifre ottali (per esempio `755` o `0644`). **Invio applica, Esc annulla**. Non è ricorsivo e salta i link simbolici.
+- **chown** presenta una finestra con campi **Proprietario** e **Gruppo**, selezionabili con **Tab** o le frecce. Si può anche digitare direttamente `utente:gruppo` nel primo campo. **Invio applica, Esc annulla**. Non è ricorsivo e non usa `sudo`: le modifiche senza privilegi adeguati falliscono in modo controllato.
+- **Link simbolico** richiede il nome del nuovo link, creato nella cartella attuale con **destinazione assoluta** (per esempio `/home/user/Documenti/file.txt`). Spostare il link in un'altra directory **non ne altera la destinazione**; spostare o cancellare il file originale può comunque romperlo. Non sovrascrive link o file preesistenti.
 
 Le operazioni `chmod` e `chown` si applicano ai file marcati con F3, oppure alla riga corrente se non ci sono marcature. La creazione del link utilizza sempre e soltanto la riga corrente.
 
