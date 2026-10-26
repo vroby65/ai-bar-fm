@@ -19,9 +19,10 @@ File manager TUI a pannello singolo (Bash, senza ncurses).
  F6                               incolla nella directory corrente
  F7                               crea una directory
  F8                               cancella (chiede conferma)
- Ctrl+X poi C                     chmod: cambia permessi (ottale)
- Ctrl+X poi O                     chown: cambia proprietario[:gruppo]
- Ctrl+X poi S                     crea link simbolico all'elemento
+ F10                              esci dal file manager
+ Ctrl+X poi C                     finestra permessi stile MC
+ Ctrl+X poi O                     finestra proprietario/gruppo
+ Ctrl+X poi S                     crea link simbolico assoluto
  Mouse click                      seleziona / doppio click apre
  Rotella mouse                    scorre l'elenco
  r                                aggiorna la lista
@@ -231,13 +232,16 @@ sync_scroll() {
 
 render_actions() {
     local -a segs=(
-        '[F3] Selez.' '[F4] Copia' '[F5] Taglia' '[F6] Incolla' '[F7] CreaDir' '[F8] Elimina'
+        '[F3] Selez.' '[F4] Copia' '[F5] Taglia' '[F6] Incolla' '[F7] CreaDir' '[F8] Elimina' '[F10] Esci'
     )
     # Barra MC: tasti evidenziati su ciano, comandi su fondo nero.
-    if (( inner < 89 )); then
-        segs=('3Sel' '4Cop' '5Tag' '6Inc' '7Dir' '8Del')
+    if (( inner < 98 )); then
+        segs=('3Sel' '4Cop' '5Tag' '6Inc' '7Dir' '8Del' '10Esci')
     fi
-    action_keys=(F3 F4 F5 F6 F7 F8)
+    if (( inner < 56 )); then
+        segs=('3' '4' '5' '6' '7' '8' '10')
+    fi
+    action_keys=(F3 F4 F5 F6 F7 F8 F10)
     action_starts=()
     action_ends=()
     local seg idx used=1 prefix suffix start width
@@ -253,8 +257,11 @@ render_actions() {
             prefix=${seg%%]*}']'
             suffix=${seg#"$prefix"}
         else
-            prefix=${seg:0:1}
-            suffix=${seg:1}
+            if [[ $seg == 10* ]]; then
+                prefix='10'; suffix=${seg:2}
+            else
+                prefix=${seg:0:1}; suffix=${seg:1}
+            fi
         fi
         printf '%s%s%s%s' "$CLR_HOTKEY" "$prefix" "$CLR_FOOTER" "$suffix" >&9
         ((used+=${#seg}))
@@ -387,6 +394,7 @@ input_key() {
                 '[17~'|'[[F') KEY='F6';;
                 '[18~'|'[[G') KEY='F7';;
                 '[19~'|'[[H') KEY='F8';;
+                '[21~') KEY='F10';;
                 *) KEY='ESC';;
             esac
             ;;
@@ -661,10 +669,11 @@ create_symlink() {
         notice="Esiste gia' un file o link con questo nome."
         return
     fi
-    # Link relativo alla directory: punta al nome originale.
-    if ln -s -- "${path##*/}" "$cwd/$name" 2>/dev/null; then
+    # Destinazione assoluta: il link resta valido dopo aver spostato
+    # il collegamento in un altra directory (finche il target esiste).
+    if ln -s -- "$path" "$cwd/$name" 2>/dev/null; then
         reload
-        notice="Creato link $name -> ${path##*/}"
+        notice="Creato link $name -> $path"
     else
         notice='Creazione link non riuscita (permessi?).'
     fi
@@ -762,7 +771,7 @@ perform_key() {
         BAD_CHORD) notice='Ctrl+X: usare C per chmod, O per chown, S per link.';;
         r|R) reload; notice='Elenco aggiornato.';;
         ESC) notice='Premi q per uscire.';;
-        q|Q) return 1;;
+        F10|q|Q) return 1;;
         *) ;;
     esac
     return 0
@@ -780,6 +789,7 @@ while :; do
     if [[ $KEY == MOUSE ]]; then
         KEY=''
         handle_mouse
+        if [[ $KEY == F10 ]]; then break; fi
         [[ -n $KEY ]] && perform_key "$KEY" || true
         continue
     fi
