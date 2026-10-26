@@ -26,11 +26,14 @@ ENTER = b"\r"
 
 
 class Session:
-    def __init__(self, cwd: pathlib.Path):
+    def __init__(self, cwd: pathlib.Path, cols: int = 96):
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
+            os.environ["TERM"] = "xterm-256color"
+            os.environ["LC_ALL"] = "C.UTF-8"
+            os.environ.pop("NO_COLOR", None)
             os.execl(SCRIPT, SCRIPT, str(cwd))
-        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 28, 96, 0, 0))
+        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 28, cols, 0, 0))
         os.set_blocking(self.fd, False)
         self.output = bytearray()
         self.drain(0.3)
@@ -53,6 +56,10 @@ class Session:
     def key(self, value: bytes):
         os.write(self.fd, value)
         self.drain()
+
+    def mouse(self, button: int, x: int, y: int, release: bool = False):
+        suffix = 'm' if release else 'M'
+        self.key(f"\x1b[<{button};{x};{y}{suffix}".encode())
 
     def type(self, text: str):
         for ch in text.encode("utf-8"):
@@ -184,9 +191,91 @@ def test_no_copy_into_self():
         assert not (root / "folder" / "folder").exists()
 
 
+def test_mouse_double_click_opens_folder():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "folder").mkdir()
+        s = Session(root)
+        try:
+            assert b"\x1b[?1000h\x1b[?1006h" in s.output, "Mouse non attivato"
+            assert "┌".encode() in s.output, "Cornici Unicode mancanti"
+            assert b"\x1b[38;5;" in s.output, "Colori ANSI mancanti"
+            s.mouse(0, 10, 5)
+            s.mouse(0, 10, 5)
+            s.key(F7)
+            s.type("mouse-created")
+            s.key(ENTER)
+            assert (root / "folder" / "mouse-created").is_dir(), "Doppio click non apre"
+        finally:
+            s.close()
+
+
+def test_mouse_button_mkdir():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        s = Session(root)
+        try:
+            s.mouse(0, 60, 25)
+            s.type("button-made")
+            s.key(ENTER)
+            assert (root / "button-made").is_dir(), "F7 via mouse non funziona"
+        finally:
+            s.close()
+
+
+def test_mouse_prompt_ignores_click():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        s = Session(root)
+        try:
+            s.key(F7)
+            s.mouse(0, 10, 8)
+            s.type("clean-name")
+            s.key(ENTER)
+            assert (root / "clean-name").is_dir(), "Mouse ha corrotto il prompt"
+        finally:
+            s.close()
+
+
+def test_mouse_mark_copy():
+    with tempfile.TemporaryDirectory() as tmp:
+        src, dst = fixture(pathlib.Path(tmp))
+        s = Session(src)
+        try:
+            s.mouse(0, 3, 6)
+            s.key(F4)
+            s.key(BACK)
+            s.key(ENTER)
+            s.key(F6)
+            assert (dst / "alpha.txt").read_text() == "alpha", "Selezione mouse non funziona"
+        finally:
+            s.close()
+
+
+def test_mouse_compact_bar_and_wheel():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        for i in range(30):
+            (root / f"d{i:02d}").mkdir()
+        s = Session(root, cols=40)
+        try:
+            s.mouse(0, 27, 25)
+            s.type("small-window")
+            s.key(ENTER)
+            assert (root / "small-window").is_dir(), "F7 non cliccabile su finestra stretta"
+            for _ in range(28):
+                s.mouse(65, 10, 10)
+            assert b"d25" in s.output[-2500:], "Rotella non porta ai file piu' in basso"
+        finally:
+            s.close()
+
+
 if __name__ == "__main__":
     tests = [test_copy_multiple, test_cut_move, test_mkdir_and_delete, test_no_overwrite,
-             test_filename_with_spaces, test_delete_cancelled, test_no_copy_into_self]
+             test_filename_with_spaces, test_delete_cancelled, test_no_copy_into_self,
+             test_mouse_double_click_opens_folder, test_mouse_button_mkdir,
+             test_mouse_prompt_ignores_click, test_mouse_mark_copy,
+             test_mouse_compact_bar_and_wheel]
     for test in tests:
         test()
         print(f"OK {test.__name__}")
