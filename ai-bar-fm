@@ -70,6 +70,10 @@ actions_y=0
 last_click_ms=0
 last_click_path=''
 MOUSE_BTN=0; MOUSE_X=0; MOUSE_Y=0; MOUSE_ACTION=''
+# Coordinate di rendering: righe salvate per evitare redraw completi.
+needs_full=1
+painted_rows=0 painted_cols=0 painted_scroll=-1 painted_cursor=-1
+painted_notice=''
 USE_COLOR=1; USE_UNICODE=1
 CLR_RESET='' CLR_BORDER='' CLR_TITLE='' CLR_STATUS='' CLR_NOTICE='' CLR_CURSOR='' CLR_ACTION=''
 CLR_PANEL='' CLR_DIR='' CLR_EXEC='' CLR_LINK='' CLR_BADLINK=''
@@ -163,7 +167,12 @@ border() {
         bottom) left=$C_BL; right=$C_BR ;;
         *) left=$C_LT; right=$C_RT ;;
     esac
-    printf '%s%s%s%s%s\r\n' "$CLR_BORDER" "$left" "$d" "$right" "$CLR_RESET" >&9
+    if [[ $kind == bottom ]]; then
+        # Niente CRLF dalla cella finale: evita scroll e disallineamenti SGR.
+        printf '%s%s%s%s%s' "$CLR_BORDER" "$left" "$d" "$right" "$CLR_RESET" >&9
+    else
+        printf '%s%s%s%s%s\r\n' "$CLR_BORDER" "$left" "$d" "$right" "$CLR_RESET" >&9
+    fi
 }
 
 size() {
@@ -201,6 +210,7 @@ reload() {
     (( scroll > cursor )) && scroll=$cursor
     # I segni di selezione sono locali alla directory visualizzata.
     marks=()
+    needs_full=1
 }
 
 sync_scroll() {
@@ -246,59 +256,85 @@ render_actions() {
     printf '%s%s%s\r\n' "$CLR_BORDER" "$C_V" "$CLR_RESET" >&9
 }
 
+# Stampa la riga visibile nella posizione reale del terminale (1-based).
+# Y=4 e' la prima riga, dopo cornice, titolo e separatore.
+paint_entry() {
+    local idx=$1 n item label selected kind row_style
+    (( idx >= scroll && idx < scroll+visible )) || return 0
+    n=$((idx-scroll))
+    printf '\033[%d;1H' "$((items_y+n))" >&9
+    if (( idx >= ${#entries[@]} )); then
+        line_text ''
+        return
+    fi
+    item=${entries[idx]}
+    selected=' '
+    [[ -v marks["$item"] ]] && selected='*'
+    row_style=$CLR_PANEL
+    kind=' '
+    label=${item##*/}
+    if [[ $item == '..' ]]; then
+        kind='/'; label='..'; row_style=$CLR_DIR
+    elif [[ -L $item ]]; then
+        kind='@'
+        if [[ -e $item ]]; then row_style=$CLR_LINK; else row_style=$CLR_BADLINK; fi
+    elif [[ -d $item ]]; then
+        kind='/'; row_style=$CLR_DIR
+    elif [[ -f $item && -x $item ]]; then
+        kind='*'; row_style=$CLR_EXEC
+    fi
+    [[ -v marks["$item"] ]] && row_style=$CLR_MARKED
+    if (( idx == cursor )); then
+        row_style=$CLR_CURSOR
+        [[ -v marks["$item"] ]] && row_style=$CLR_MARK_CURSOR
+    fi
+    line_text " $selected $kind$label" "$row_style"
+}
+
 draw() {
-    local i n kind item label selected row_style
+    local i
     size
-    printf '\033[H\033[2J' >&9
     if (( rows < 12 || cols < 35 )); then
-        printf 'Terminale troppo piccolo (minimo 35x12).\r\n' >&9
+        printf '\033[H\033[2JTerminale troppo piccolo (minimo 35x12).\r\n' >&9
+        needs_full=1
+        painted_rows=$rows; painted_cols=$cols
         return
     fi
     sync_scroll
     items_y=4
     actions_y=$((visible+5))
-    border top
-    line_text " ai-bar-fm  $cwd" "$CLR_TITLE"
-    border mid
-    for ((i=0; i<visible; i++)); do
-        n=$((scroll+i))
-        if (( n >= ${#entries[@]} )); then
-            line_text ''
-            continue
+    help_y=$((visible+6))
+    notice_y=$((visible+7))
+
+    if (( needs_full || rows != painted_rows || cols != painted_cols || scroll != painted_scroll )); then
+        # Riscrive alle posizioni fisse senza pulire tutto lo schermo.
+        # Il bordo inferiore non emette CRLF, eliminando lo scroll terminale.
+        printf '\033[H' >&9
+        border top
+        line_text " ai-bar-fm  $cwd" "$CLR_TITLE"
+        border mid
+        for ((i=0; i<visible; i++)); do
+            paint_entry "$((scroll+i))"
+        done
+        printf '\033[%d;1H' "$((visible+4))" >&9
+        border mid
+        render_actions
+        line_text ' Mouse: click seleziona, doppio click apre, rotella scorre. q Esci.' "$CLR_STATUS"
+        line_text " $notice" "$CLR_NOTICE"
+        border bottom
+        needs_full=0
+    else
+        # In navigazione aggiorna solo la vecchia e la nuova riga.
+        (( painted_cursor != cursor )) && paint_entry "$painted_cursor"
+        paint_entry "$cursor"
+        if [[ $painted_notice != "$notice" ]]; then
+            printf '\033[%d;1H' "$notice_y" >&9
+            line_text " $notice" "$CLR_NOTICE"
         fi
-        item=${entries[n]}
-        selected=' '
-        [[ -v marks["$item"] ]] && selected='*'
-        row_style=$CLR_PANEL
-        if [[ $item == '..' ]]; then
-            kind='^'; label='../'; row_style=$CLR_DIR
-        elif [[ -L $item ]]; then
-            kind='@'; label="${item##*/}"
-            if [[ -e $item ]]; then
-                row_style=$CLR_LINK
-            else
-                row_style=$CLR_BADLINK
-            fi
-        elif [[ -d $item ]]; then
-            kind='d'; label="${item##*/}/"; row_style=$CLR_DIR
-        elif [[ -f $item && -x $item ]]; then
-            kind='*'; label="${item##*/}"; row_style=$CLR_EXEC
-        else
-            kind='f'; label="${item##*/}"
-        fi
-        if [[ -v marks["$item"] ]]; then row_style=$CLR_MARKED; fi
-        if (( n == cursor )); then
-            row_style=$CLR_CURSOR
-            [[ -v marks["$item"] ]] && row_style=$CLR_MARK_CURSOR
-        fi
-        fit " $selected$kind $label" "$inner"
-        line_text "$REPLY" "$row_style"
-    done
-    border mid
-    render_actions
-    line_text ' Mouse: click seleziona, doppio click apre, rotella scorre. q Esci.' "$CLR_STATUS"
-    line_text " $notice" "$CLR_NOTICE"
-    border bottom
+    fi
+    painted_rows=$rows; painted_cols=$cols
+    painted_scroll=$scroll; painted_cursor=$cursor
+    painted_notice=$notice
 }
 
 input_key() {
@@ -426,6 +462,7 @@ save_clipboard() {
     clipboard=("${targets[@]}")
     clipboard_mode=$mode
     marks=()
+    needs_full=1
     if [[ $mode == copy ]]; then
         notice="${#clipboard[@]} elemento/i copiati negli appunti (F6 per incollare)."
     else
@@ -554,12 +591,12 @@ handle_mouse() {
     fi
     [[ $MOUSE_ACTION != M ]] && return
     (( MOUSE_BTN != 0 )) && return
-    if (( y >= items_y && y < items_y + visible )); then
+    if (( x > 1 && x < cols && y >= items_y && y < items_y + visible )); then
         idx=$((scroll + y - items_y))
         if (( idx >= 0 && idx < ${#entries[@]} )); then
             cursor=$idx
-            relx=$((x - 1))
-            if (( relx >= 2 && relx <= 4 )) && [[ ${entries[idx]} != '..' ]]; then
+            # La colonna 3 contiene il simbolo di marcatura (*).
+            if (( x == 3 )) && [[ ${entries[idx]} != '..' ]]; then
                 select_current
                 return
             fi
