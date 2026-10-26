@@ -213,28 +213,37 @@ render_actions() {
     local -a segs=(
         '[F3] Selez.' '[F4] Copia' '[F5] Taglia' '[F6] Incolla' '[F7] CreaDir' '[F8] Elimina'
     )
-    # I comandi restano tutti cliccabili in un terminale stretto.
+    # Barra MC: tasti evidenziati su ciano, comandi su fondo nero.
     if (( inner < 89 )); then
         segs=('3Sel' '4Cop' '5Tag' '6Inc' '7Dir' '8Del')
     fi
     action_keys=(F3 F4 F5 F6 F7 F8)
     action_starts=()
     action_ends=()
-    local content='' seg offset=0 base=2 i start end
-    for i in "${!segs[@]}"; do
-        seg=${segs[i]}
-        if [[ -n $content ]]; then
-            content+='  '
-            ((offset+=2))
+    local seg idx used=1 prefix suffix start width
+    printf '%s%s%s ' "$CLR_BORDER" "$C_V" "$CLR_FOOTER" >&9
+    for idx in "${!segs[@]}"; do
+        seg=${segs[idx]}
+        if (( idx > 0 )); then
+            printf '  ' >&9
+            ((used+=2))
         fi
-        start=$((base + offset))
-        content+=$seg
-        ((offset+=${#seg}))
-        end=$((base + offset - 1))
-        action_starts[i]=$start
-        action_ends[i]=$end
+        start=$((used + 2))
+        if [[ $seg == \[* ]]; then
+            prefix=${seg%%]*}']'
+            suffix=${seg#"$prefix"}
+        else
+            prefix=${seg:0:1}
+            suffix=${seg:1}
+        fi
+        printf '%s%s%s%s' "$CLR_HOTKEY" "$prefix" "$CLR_FOOTER" "$suffix" >&9
+        ((used+=${#seg}))
+        action_starts[idx]=$start
+        action_ends[idx]=$((used+1))
     done
-    line_text "$content" "$CLR_ACTION"
+    width=$((inner-used))
+    ((width > 0)) && printf '%*s' "$width" '' >&9
+    printf '%s%s%s\r\n' "$CLR_BORDER" "$C_V" "$CLR_RESET" >&9
 }
 
 draw() {
@@ -260,18 +269,29 @@ draw() {
         item=${entries[n]}
         selected=' '
         [[ -v marks["$item"] ]] && selected='*'
+        row_style=$CLR_PANEL
         if [[ $item == '..' ]]; then
-            kind='^'; label='../'
+            kind='^'; label='../'; row_style=$CLR_DIR
         elif [[ -L $item ]]; then
             kind='@'; label="${item##*/}"
+            if [[ -e $item ]]; then
+                row_style=$CLR_LINK
+            else
+                row_style=$CLR_BADLINK
+            fi
         elif [[ -d $item ]]; then
-            kind='d'; label="${item##*/}/"
+            kind='d'; label="${item##*/}/"; row_style=$CLR_DIR
+        elif [[ -f $item && -x $item ]]; then
+            kind='*'; label="${item##*/}"; row_style=$CLR_EXEC
         else
             kind='f'; label="${item##*/}"
         fi
+        if [[ -v marks["$item"] ]]; then row_style=$CLR_MARKED; fi
+        if (( n == cursor )); then
+            row_style=$CLR_CURSOR
+            [[ -v marks["$item"] ]] && row_style=$CLR_MARK_CURSOR
+        fi
         fit " $selected$kind $label" "$inner"
-        row_style=''
-        (( n == cursor )) && row_style=$CLR_CURSOR
         line_text "$REPLY" "$row_style"
     done
     border mid
