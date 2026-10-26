@@ -435,6 +435,86 @@ def test_repeated_clicks_no_crash():
             session.close()
 
 
+
+def test_execute_interactive_script():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        runner = root / "run me.sh"
+        marker = root / "result.txt"
+        runner.write_text("#!/bin/sh\nprintf 'Type a word: '\nread value\nprintf '%s' \"$value\" > result.txt\n")
+        runner.chmod(0o755)
+        session = Session(root)
+        try:
+            session.key(ENTER)
+            assert b"Type a word:" in session.output, "Non avvia lo script"
+            session.type("working")
+            session.key(ENTER)
+            session.key(ENTER)  # conferma ritorno al TUI
+            assert marker.read_text() == "working", "stdin del processo non interattivo"
+            assert b"codice 0" in session.output, "Terminale non ripristinato"
+        finally:
+            session.close()
+
+
+def test_ctrl_x_chmod():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        f = root / "plain.sh"
+        f.write_text("#!/bin/sh\nexit 0\n")
+        f.chmod(0o644)
+        session = Session(root)
+        try:
+            session.key(b"\x18c")
+            session.type("755")
+            session.key(ENTER)
+            assert f.stat().st_mode & 0o777 == 0o755, "chmod non applicato"
+            session.key(b"\x18c")
+            session.type("999")
+            session.key(ENTER)
+            assert f.stat().st_mode & 0o777 == 0o755, "chmod invalido applicato"
+        finally:
+            session.close()
+
+
+def test_ctrl_x_symlink():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "origin.txt").write_text("source")
+        session = Session(root)
+        try:
+            session.key(b"\x18s")
+            session.type("alias.txt")
+            session.key(ENTER)
+            target = root / "alias.txt"
+            assert target.is_symlink(), "link simbolico non creato"
+            assert os.readlink(target) == "origin.txt", "link relativo errato"
+            assert target.read_text() == "source"
+            session.key(b"\x18s")
+            session.type("alias.txt")
+            session.key(ENTER)
+            assert target.is_symlink(), "link esistente sovrascritto"
+        finally:
+            session.close()
+
+
+def test_ctrl_x_chown_nonprivileged():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        file = root / "owned.txt"
+        file.write_text("owned")
+        session = Session(root)
+        try:
+            session.key(b"\x18o")
+            session.type(f"{os.getuid()}:{os.getgid()}")
+            session.key(ENTER)
+            assert file.is_file(), "chown ha modificato il contenuto"
+            assert file.stat().st_uid == os.getuid()
+            assert b"chown " in session.output, "Non e' stato eseguito chown"
+        finally:
+            session.close()
+
+
+
 if __name__ == "__main__":
     tests = [test_copy_multiple, test_cut_move, test_mkdir_and_delete, test_no_overwrite,
              test_filename_with_spaces, test_delete_cancelled, test_no_copy_into_self,
@@ -445,7 +525,8 @@ if __name__ == "__main__":
              test_hidden_and_mc_directory_prefix, test_mouse_exact_columns_and_rows,
              test_no_flicker_on_cursor_navigation,
              test_lynx_arrows_enter_and_back, test_millis_italian_decimal_comma,
-             test_repeated_clicks_no_crash]
+             test_repeated_clicks_no_crash, test_execute_interactive_script,
+             test_ctrl_x_chmod, test_ctrl_x_symlink, test_ctrl_x_chown_nonprivileged]
     for test in tests:
         test()
         print(f"OK {test.__name__}")
