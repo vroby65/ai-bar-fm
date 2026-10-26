@@ -19,8 +19,8 @@ File manager TUI a pannello singolo (Bash, senza ncurses).
  F6                               incolla nella directory corrente
  F7                               crea una directory
  F8                               cancella (chiede conferma)
- Ctrl+X poi C                     chmod, cambia permessi (ottale)
- Ctrl+X poi O                     chown, cambia proprietario[:gruppo]
+ Ctrl+X poi C                     chmod: cambia permessi (ottale)
+ Ctrl+X poi O                     chown: cambia proprietario[:gruppo]
  Ctrl+X poi S                     crea link simbolico all'elemento
  Mouse click                      seleziona / doppio click apre
  Rotella mouse                    scorre l'elenco
@@ -393,394 +393,8 @@ input_key() {
         ''|$'\r'|$'\n') KEY='ENTER';;
         $'\177'|$'\b') KEY='BACK';;
         ' ') KEY='F3';;
-        
-    esac
-}
-
-# Inserimento in modalita' raw: niente dipendenze su read -e/readline o dialog.
-ask() {
-    local prompt=$1 value='' ch
-    while :; do
-        notice="$prompt$value"
-        draw
-        IFS= read -rsn1 -u9 ch || return 1
-        case $ch in
-            ''|$'\r'|$'\n') REPLY=$value; return 0;;
-            $'\e')
-                # Scarta sequenze mouse durante i prompt.
-                local next tail k
-                if IFS= read -rsn1 -t 0.08 -u9 next; then
-                    if [[ $next == '[' ]]; then
-                        IFS= read -rsn1 -t 0.08 -u9 tail || { notice='Operazione annullata.'; return 1; }
-                        if [[ $tail == '<' ]]; then
-                            for ((k=0; k<30; k++)); do
-                                IFS= read -rsn1 -t 0.08 -u9 tail || break
-                                [[ $tail == M || $tail == m ]] && break
-                            done
-                            continue
-                        fi
-                    fi
-                fi
-                notice='Operazione annullata.'
-                return 1
-                ;;
-            $'\177'|$'\b') value=${value%?};;
-            *)
-                if [[ $ch == [[:print:]] && ${#value} -lt 200 ]]; then
-                    value+=$ch
-                fi
-                ;;
-        esac
-    done
-}
-
-select_current() {
-    local path=${entries[cursor]}
-    if [[ $path == '..' ]]; then
-        notice="La directory padre non e' selezionabile."
-        return
-    fi
-    if [[ -v marks["$path"] ]]; then
-        unset 'marks[$path]'
-        notice='Elemento deselezionato.'
-    else
-        marks["$path"]=1
-        notice='Elemento selezionato (*).'
-    fi
-}
-
-collect() {
-    local path
-    targets=()
-    for path in "${entries[@]}"; do
-        [[ $path == '..' ]] && continue
-        [[ -v marks["$path"] ]] && targets+=("$path")
-    done
-    if (( ${#targets[@]} == 0 )); then
-        path=${entries[cursor]}
-        [[ $path != '..' ]] && targets+=("$path")
-    fi
-}
-
-save_clipboard() {
-    local mode=$1
-    collect
-    if (( ${#targets[@]} == 0 )); then
-        notice='Seleziona prima un elemento.'
-        return
-    fi
-    clipboard=("${targets[@]}")
-    clipboard_mode=$mode
-    marks=()
-    needs_full=1
-    if [[ $mode == copy ]]; then
-        notice="${#clipboard[@]} elemento/i copiati negli appunti (F6 per incollare)."
-    else
-        notice="${#clipboard[@]} elemento/i tagliati (F6 per spostare)."
-    fi
-}
-
-paste() {
-    local src dst okay=0 failed=0
-    local -a remaining=()
-    if (( ${#clipboard[@]} == 0 )); then
-        notice='Gli appunti sono vuoti (usa F4 o F5).'
-        return
-    fi
-    for src in "${clipboard[@]}"; do
-        dst="$cwd/${src##*/}"
-        if [[ ! -e $src && ! -L $src ]]; then
-            ((failed+=1)); remaining+=("$src"); continue
-        fi
-        if [[ -e $dst || -L $dst ]]; then
-            ((failed+=1)); remaining+=("$src"); continue
-        fi
-        # Non copiare o spostare una directory al proprio interno.
-        if [[ -d $src && ! -L $src && "$cwd/" == "$src/"* ]]; then
-            ((failed+=1)); remaining+=("$src"); continue
-        fi
-        if [[ $clipboard_mode == copy ]]; then
-            if cp -a -- "$src" "$dst" >/dev/null 2>&1; then
-                ((okay+=1))
-            else
-                ((failed+=1)); remaining+=("$src")
-            fi
-        else
-            if mv -- "$src" "$dst" >/dev/null 2>&1; then
-                ((okay+=1))
-            else
-                ((failed+=1)); remaining+=("$src")
-            fi
-        fi
-    done
-    if [[ $clipboard_mode == cut ]]; then
-        clipboard=("${remaining[@]}")
-        (( ${#clipboard[@]} == 0 )) && clipboard_mode=''
-    fi
-    notice="Incollati/spostati: $okay. Non riusciti: $failed (nessuna sovrascrittura)."
-    cursor=1
-    reload
-}
-
-new_dir() {
-    local name
-    if ! ask 'Nome nuova directory (Esc annulla): '; then return; fi
-    name=$REPLY
-    if [[ -z $name || $name == '.' || $name == '..' || $name == */* ]]; then
-        notice='Nome non valido.'
-        return
-    fi
-    if [[ -e "$cwd/$name" || -L "$cwd/$name" ]]; then
-        notice="Esiste gia' un elemento con quel nome."
-        return
-    fi
-    if mkdir -- "$cwd/$name" 2>/dev/null; then
-        notice="Directory creata: $name"
-    else
-        notice='Creazione non riuscita (permessi o nome non valido).'
-    fi
-    reload
-}
-
-delete_items() {
-    local path yes count=0 errors=0
-    collect
-    if (( ${#targets[@]} == 0 )); then
-        notice='Seleziona prima un elemento.'
-        return
-    fi
-    if ! ask "Eliminare ${#targets[@]} elemento/i? s/N: "; then return; fi
-    yes=$REPLY
-    if [[ $yes != 's' && $yes != 'S' && $yes != 'y' && $yes != 'Y' ]]; then
-        notice='Eliminazione annullata.'
-        return
-    fi
-    for path in "${targets[@]}"; do
-        if rm -rf -- "$path" 2>/dev/null; then
-            ((count+=1))
-        else
-            ((errors+=1))
-        fi
-    done
-    cursor=1
-    reload
-    notice="Eliminati: $count. Errori: $errors."
-}
-
-# Consegna temporaneamente il terminale al programma avviato.
-# Ripristina anche la schermata alternativa e il mouse dopo la sua uscita.
-run_executable() {
-    local path=${entries[cursor]} status
-    [[ $path != '..' && -f $path && -x $path ]] || {
-        notice='Il file selezionato non e'\' 'un eseguibile.'
-        return
-    }
-    printf '\033[?1000l\033[?1006l\033[?25h%s' "$CLR_RESET" >&9
-    (( alt_screen )) && printf '\033[?1049l' >&9
-    stty "$original_tty" <&9 || return
-    printf '\r\nai-bar-fm: esecuzione di %s\r\n' "${path##*/}" >&9
-    # Nessun eval, nessuna shell aggiuntiva; anche i nomi con spazi sono sicuri.
-    "$path" <&9 >&9 2>&9
-    status=$?
-    printf '\r\n[Uscita: %d] Premi Invio per tornare al file manager...' "$status" >&9
-    IFS= read -r -u9 _unused || :
-    stty -echo -icanon -icrnl min 1 time 0 <&9 || return
-    (( alt_screen )) && printf '\033[?1049h' >&9
-    printf '\033[?25l\033[?1000h\033[?1006h' >&9
-    needs_full=1
-    notice="Eseguito: ${path##*/} (codice $status)."
-}
-
-chmod_items() {
-    local mode path changed=0 failed=0
-    collect
-    if (( ${#targets[@]} == 0 )); then notice='Nessun elemento selezionato.'; return; fi
-    if ! ask "chmod su ${#targets[@]} elemento/i (es. 755; Esc annulla): "; then return; fi
-    mode=$REPLY
-    if [[ ! $mode =~ ^[0-7]{3,4}$ ]]; then
-        notice='Permessi non validi: usare 3 o 4 cifre ottali (es. 644, 0755).'
-        return
-    fi
-    for path in "${targets[@]}"; do
-        # chmod normalmente segue i symlink: qui rifiutiamo link per evitare
-        # modifiche involontarie ai relativi file di destinazione.
-        if [[ -L $path ]]; then
-            ((failed+=1))
-        elif chmod -- "$mode" "$path" 2>/dev/null; then
-            ((changed+=1))
-        else
-            ((failed+=1))
-        fi
-    done
-    reload
-    notice="chmod $mode: modificati $changed, non riusciti $failed."
-}
-
-chown_items() {
-    local owner path changed=0 failed=0
-    collect
-    if (( ${#targets[@]} == 0 )); then notice='Nessun elemento selezionato.'; return; fi
-    if ! ask "chown su ${#targets[@]} elemento/i (utente[:gruppo]; Esc annulla): "; then return; fi
-    owner=$REPLY
-    if [[ -z $owner || $owner == *[[:space:]]* || $owner == */* || $owner == ':' ]]; then
-        notice='Proprietario/gruppo non valido.'
-        return
-    fi
-    for path in "${targets[@]}"; do
-        if chown -- "$owner" "$path" 2>/dev/null; then
-            ((changed+=1))
-        else
-            ((failed+=1))
-        fi
-    done
-    reload
-    notice="chown $owner: modificati $changed, non riusciti $failed (verifica permessi)."
-}
-
-create_symlink() {
-    local path=${entries[cursor]} name
-    if [[ $path == '..' ]]; then
-        notice='Seleziona un file o una directory per il link.'
-        return
-    fi
-    if ! ask "Nome del link simbolico a ${path##*/} (Esc annulla): "; then return; fi
-    name=$REPLY
-    if [[ -z $name || $name == '.' || $name == '..' || $name == */* ]]; then
-        notice='Nome del link non valido (una sola componente).'
-        return
-    fi
-    if [[ -e $cwd/$name || -L $cwd/$name ]]; then
-        notice='Esiste gia'\' 'un file o link con questo nome.'
-        return
-    fi
-    # Link relativo: valido anche se la directory contenente il link si sposta.
-    if ln -s -- "${path##*/}" "$cwd/$name" 2>/dev/null; then
-        reload
-        notice="Creato link $name -> ${path##*/}"
-    else
-        notice='Creazione link non riuscita (permessi?).'
-    fi
-}
-
-enter_dir() {
-    local path=${entries[cursor]}
-    if [[ $path == '..' ]]; then
-        cwd=$(cd -P -- "$cwd/.." && pwd -P)
-    elif [[ -d $path ]]; then
-        if ! cwd=$(cd -P -- "$path" 2>/dev/null && pwd -P); then
-            notice='Impossibile entrare nella directory.'
-            return
-        fi
-    elif [[ -f $path && -x $path ]]; then
-        run_executable
-        return
-    else
-        notice="Non e' una directory o un file eseguibile."
-        return
-    fi
-    cursor=1; scroll=0
-    reload
-    notice="Directory: $cwd"
-}
-
-handle_mouse() {
-    local idx i x y now path relx
-    x=$MOUSE_X
-    y=$MOUSE_Y
-    if (( MOUSE_BTN == 64 )); then
-        ((cursor > 0)) && ((cursor-=1))
-        notice='Rotella su.'
-        return
-    fi
-    if (( MOUSE_BTN == 65 )); then
-        ((cursor + 1 < ${#entries[@]})) && ((cursor+=1))
-        notice='Rotella giu.'
-        return
-    fi
-    [[ $MOUSE_ACTION != M ]] && return
-    (( MOUSE_BTN != 0 )) && return
-    if (( x > 1 && x < cols && y >= items_y && y < items_y + visible )); then
-        idx=$((scroll + y - items_y))
-        if (( idx >= 0 && idx < ${#entries[@]} )); then
-            cursor=$idx
-            # La colonna 3 contiene il simbolo di marcatura (*).
-            if (( x == 3 )) && [[ ${entries[idx]} != '..' ]]; then
-                select_current
-                return
-            fi
-            path=${entries[idx]}
-            now=$(now_millis)
-            if [[ $path == "$last_click_path" ]] && (( now - last_click_ms < 450 )); then
-                last_click_ms=0
-                last_click_path=''
-                enter_dir
-                return
-            fi
-            last_click_ms=$now
-            last_click_path=$path
-            notice='Riga selezionata con mouse.'
-        fi
-        return
-    fi
-    if (( y == actions_y )); then
-        for i in "${!action_keys[@]}"; do
-            if (( x >= action_starts[i] && x <= action_ends[i] )); then
-                KEY=${action_keys[i]}
-                return
-            fi
-        done
-    fi
-}
-
-perform_key() {
-    case $1 in
-        UP|k) ((cursor>0)) && ((cursor-=1));;
-        DOWN|j) ((cursor+1<${#entries[@]})) && ((cursor+=1));;
-        PAGEUP) ((cursor-=visible)); ((cursor<0)) && cursor=0;;
-        PAGEDOWN) ((cursor+=visible)); ((cursor>=${#entries[@]})) && cursor=$((${#entries[@]}-1));;
-        HOME) cursor=0;;
-        END) cursor=$((${#entries[@]}-1));;
-        ENTER|RIGHT|l) enter_dir;;
-        LEFT|h|BACK) cwd=$(cd -P -- "$cwd/.." && pwd -P); cursor=1; scroll=0; reload;;
-        F3) select_current;;
-        F4) save_clipboard copy;;
-        F5) save_clipboard cut;;
-        F6) paste;;
-        F7) new_dir;;
-        F8) delete_items;;
-        CHMOD) chmod_items;;
-        CHOWN) chown_items;;
-        SYMLINK) create_symlink;;
-        BAD_CHORD) notice='Ctrl+X: usare C per chmod, O per chown, S per link.';;
-        r|R) reload; notice='Elenco aggiornato.';;
-        ESC) notice='Premi q per uscire.';;
-        q|Q) return 1;;
-        *) ;;
-    esac
-    return 0
-}
-
-reload
-(( ${#entries[@]} > 1 )) && cursor=1
-while :; do
-    draw
-    if ! input_key; then break; fi
-    if (( rows < 12 || cols < 35 )); then
-        [[ $KEY == q || $KEY == Q ]] && break
-        continue
-    fi
-    if [[ $KEY == MOUSE ]]; then
-        KEY=''
-        handle_mouse
-        [[ -n $KEY ]] && perform_key "$KEY" || true
-        continue
-    fi
-    if ! perform_key "$KEY"; then
-        break
-    fi
-done
-\030')
-            # Chord stile MC: Ctrl+X seguito da C, O o S.
+        $'\030')
+            # Sequenza MC: Ctrl+X poi C, O o S.
             IFS= read -rsn1 -u9 next || return 1
             case $next in
                 c|C) KEY='CHMOD';;
@@ -963,6 +577,99 @@ delete_items() {
     notice="Eliminati: $count. Errori: $errors."
 }
 
+# Libera il terminale per eseguire un programma interattivo.
+run_executable() {
+    local path=${entries[cursor]} status
+    if [[ $path == '..' || ! -f $path || ! -x $path ]]; then
+        notice="Il file selezionato non e' un eseguibile."
+        return
+    fi
+    printf '\033[?1000l\033[?1006l\033[?25h%s' "$CLR_RESET" >&9
+    (( alt_screen )) && printf '\033[?1049l' >&9
+    stty "$original_tty" <&9 || return
+    printf '\r\nai-bar-fm: esecuzione di %s\r\n' "${path##*/}" >&9
+    # Invocazione diretta senza eval e senza interpolare il nome.
+    "$path" <&9 >&9 2>&9
+    status=$?
+    printf '\r\n[Uscita: %d] Premi Invio per tornare al file manager...' "$status" >&9
+    IFS= read -r -u9 _unused || :
+    stty -echo -icanon -icrnl min 1 time 0 <&9 || return
+    (( alt_screen )) && printf '\033[?1049h' >&9
+    printf '\033[?25l\033[?1000h\033[?1006h' >&9
+    needs_full=1
+    notice="Eseguito: ${path##*/} (codice $status)."
+}
+
+chmod_items() {
+    local mode path changed=0 failed=0
+    collect
+    if (( ${#targets[@]} == 0 )); then notice='Nessun elemento selezionato.'; return; fi
+    if ! ask "chmod su ${#targets[@]} elemento/i (es. 755; Esc annulla): "; then return; fi
+    mode=$REPLY
+    if [[ ! $mode =~ ^[0-7]{3,4}$ ]]; then
+        notice='Permessi non validi: usare 3 o 4 cifre ottali (es. 644, 0755).'
+        return
+    fi
+    for path in "${targets[@]}"; do
+        # I link vengono saltati: chmod li seguirebbe e cambierebbe il target.
+        if [[ -L $path ]]; then
+            ((failed+=1))
+        elif chmod -- "$mode" "$path" 2>/dev/null; then
+            ((changed+=1))
+        else
+            ((failed+=1))
+        fi
+    done
+    reload
+    notice="chmod $mode: modificati $changed, non riusciti $failed."
+}
+
+chown_items() {
+    local owner path changed=0 failed=0
+    collect
+    if (( ${#targets[@]} == 0 )); then notice='Nessun elemento selezionato.'; return; fi
+    if ! ask "chown su ${#targets[@]} elemento/i (utente[:gruppo]; Esc annulla): "; then return; fi
+    owner=$REPLY
+    if [[ -z $owner || $owner == *[[:space:]]* || $owner == */* || $owner == ':' ]]; then
+        notice='Proprietario/gruppo non valido.'
+        return
+    fi
+    for path in "${targets[@]}"; do
+        if chown -- "$owner" "$path" 2>/dev/null; then
+            ((changed+=1))
+        else
+            ((failed+=1))
+        fi
+    done
+    reload
+    notice="chown $owner: modificati $changed, non riusciti $failed (verifica permessi)."
+}
+
+create_symlink() {
+    local path=${entries[cursor]} name
+    if [[ $path == '..' ]]; then
+        notice='Seleziona un file o una directory per il link.'
+        return
+    fi
+    if ! ask "Nome del link simbolico a ${path##*/} (Esc annulla): "; then return; fi
+    name=$REPLY
+    if [[ -z $name || $name == '.' || $name == '..' || $name == */* ]]; then
+        notice='Nome del link non valido (una sola componente).'
+        return
+    fi
+    if [[ -e $cwd/$name || -L $cwd/$name ]]; then
+        notice="Esiste gia' un file o link con questo nome."
+        return
+    fi
+    # Link relativo alla directory: punta al nome originale.
+    if ln -s -- "${path##*/}" "$cwd/$name" 2>/dev/null; then
+        reload
+        notice="Creato link $name -> ${path##*/}"
+    else
+        notice='Creazione link non riuscita (permessi?).'
+    fi
+}
+
 enter_dir() {
     local path=${entries[cursor]}
     if [[ $path == '..' ]]; then
@@ -972,8 +679,11 @@ enter_dir() {
             notice='Impossibile entrare nella directory.'
             return
         fi
+    elif [[ -f $path && -x $path ]]; then
+        run_executable
+        return
     else
-        notice="Non e' una directory."
+        notice="Non e' una directory o un file eseguibile."
         return
     fi
     cursor=1; scroll=0
@@ -1046,6 +756,10 @@ perform_key() {
         F6) paste;;
         F7) new_dir;;
         F8) delete_items;;
+        CHMOD) chmod_items;;
+        CHOWN) chown_items;;
+        SYMLINK) create_symlink;;
+        BAD_CHORD) notice='Ctrl+X: usare C per chmod, O per chown, S per link.';;
         r|R) reload; notice='Elenco aggiornato.';;
         ESC) notice='Premi q per uscire.';;
         q|Q) return 1;;
