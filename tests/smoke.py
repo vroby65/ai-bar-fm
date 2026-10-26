@@ -26,12 +26,16 @@ ENTER = b"\r"
 
 
 class Session:
-    def __init__(self, cwd: pathlib.Path, cols: int = 96):
+    def __init__(self, cwd: pathlib.Path, cols: int = 96, env: dict[str, str] | None = None):
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
             os.environ["TERM"] = "xterm-256color"
             os.environ["LC_ALL"] = "C.UTF-8"
             os.environ.pop("NO_COLOR", None)
+            os.environ.pop("ABFM_NO_COLOR", None)
+            os.environ.pop("ABFM_ASCII", None)
+            if env:
+                os.environ.update(env)
             os.execl(SCRIPT, SCRIPT, str(cwd))
         fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 28, cols, 0, 0))
         os.set_blocking(self.fd, False)
@@ -199,7 +203,7 @@ def test_mouse_double_click_opens_folder():
         try:
             assert b"\x1b[?1000h\x1b[?1006h" in s.output, "Mouse non attivato"
             assert "┌".encode() in s.output, "Cornici Unicode mancanti"
-            assert b"\x1b[38;5;" in s.output, "Colori ANSI mancanti"
+            assert b"\x1b[0;37;44m" in s.output, "Palette classica MC mancante"
             s.mouse(0, 10, 5)
             s.mouse(0, 10, 5)
             s.key(F7)
@@ -270,12 +274,61 @@ def test_mouse_compact_bar_and_wheel():
             s.close()
 
 
+
+def test_mc_palette_and_highlighting():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "dir").mkdir()
+        (root / "regular.txt").write_text("text")
+        exe = root / "executable.sh"
+        exe.write_text("#!/bin/sh\nexit 0\n")
+        exe.chmod(0o755)
+        (root / "shortcut").symlink_to("regular.txt")
+        (root / "broken").symlink_to("does-not-exist")
+        s = Session(root)
+        try:
+            out = bytes(s.output)
+            assert b"\x1b[0;37;44m" in out, "Sfondo blu / grigio mancante"
+            assert b"\x1b[0;30;46m" in out, "Selezione nero / ciano mancante"
+            assert b"\x1b[1;37;44m" in out, "Directory bianche mancanti"
+            assert b"\x1b[1;32;44m" in out, "Eseguibili verdi mancanti"
+            assert b"\x1b[0;36;44m" in out, "Link ciano mancanti"
+            assert b"\x1b[1;31;44m" in out, "Link interrotti rossi mancanti"
+            assert b"\x1b[0;37;40m" in out, "Barra nera comandi mancante"
+            s.key(F3)
+            assert b"\x1b[1;33;46m" in s.output, "Selezione marcata gialla mancante"
+        finally:
+            s.close()
+
+
+def test_no_color_fallback():
+    with tempfile.TemporaryDirectory() as tmp:
+        s = Session(pathlib.Path(tmp), env={"ABFM_NO_COLOR": "1"})
+        try:
+            assert b"\x1b[0;37;44m" not in s.output
+            assert b"\x1b[0;30;46m" not in s.output
+            assert b"\x1b[0;37;40m" not in s.output
+            assert "┌".encode() in s.output
+        finally:
+            s.close()
+
+
+def test_ascii_fallback():
+    with tempfile.TemporaryDirectory() as tmp:
+        s = Session(pathlib.Path(tmp), env={"ABFM_ASCII": "1"})
+        try:
+            assert b"+" + b"-" * 94 + b"+" in s.output
+            assert "┌".encode() not in s.output
+        finally:
+            s.close()
+
 if __name__ == "__main__":
     tests = [test_copy_multiple, test_cut_move, test_mkdir_and_delete, test_no_overwrite,
              test_filename_with_spaces, test_delete_cancelled, test_no_copy_into_self,
              test_mouse_double_click_opens_folder, test_mouse_button_mkdir,
              test_mouse_prompt_ignores_click, test_mouse_mark_copy,
-             test_mouse_compact_bar_and_wheel]
+             test_mouse_compact_bar_and_wheel, test_mc_palette_and_highlighting,
+             test_no_color_fallback, test_ascii_fallback]
     for test in tests:
         test()
         print(f"OK {test.__name__}")
