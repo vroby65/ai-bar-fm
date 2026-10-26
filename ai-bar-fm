@@ -75,6 +75,7 @@ actions_y=0
 last_click_ms=0
 last_click_path=''
 MOUSE_BTN=0; MOUSE_X=0; MOUSE_Y=0; MOUSE_ACTION=''
+PENDING_CHAR='' 
 # Coordinate di rendering: righe salvate per evitare redraw completi.
 needs_full=1
 painted_rows=0 painted_cols=0 painted_scroll=-1 painted_cursor=-1
@@ -362,11 +363,22 @@ input_key() {
     local char next code='' n payload
     KEY=''
     MOUSE_BTN=0; MOUSE_X=0; MOUSE_Y=0; MOUSE_ACTION=''
-    IFS= read -rsn1 -u9 char || return 1
+    if [[ -n $PENDING_CHAR ]]; then
+        char=$PENDING_CHAR; PENDING_CHAR=''
+    else
+        IFS= read -rsn1 -u9 char || return 1
+    fi
     case $char in
         $'\e')
             if ! IFS= read -rsn1 -t 0.10 -u9 next; then
                 KEY='ESC'; return 0
+            fi
+            if [[ $next != '[' && $next != 'O' ]]; then
+                # Esc seguito rapidamente da una lettera: non perdere
+                # la lettera (es. Esc per annullare e subito q per uscire).
+                PENDING_CHAR=$next
+                KEY='ESC'
+                return 0
             fi
             code=$next
             if [[ $next == '[' || $next == 'O' ]]; then
