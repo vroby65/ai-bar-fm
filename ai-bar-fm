@@ -608,18 +608,140 @@ run_executable() {
     notice="Eseguito: ${path##*/} (codice $status)."
 }
 
+# Finestre modali con bordi e colori MC, senza dialog/ncurses.
+# Tutti i movimenti sono assoluti e non producono scroll del terminale.
+modal_frame() {
+    local title=$1 i d
+    size
+    modal_w=$((cols-4))
+    (( modal_w > 58 )) && modal_w=58
+    modal_h=12
+    modal_x=$(((cols-modal_w)/2+1))
+    modal_y=$(((rows-modal_h)/2+1))
+    printf -v d '%*s' "$((modal_w-2))" ''
+    d=${d// /$C_H}
+    printf '\033[%d;%dH%s%s%s%s%s' "$modal_y" "$modal_x" "$CLR_BORDER" "$C_TL" "$d" "$C_TR" "$CLR_RESET" >&9
+    for ((i=1; i<modal_h-1; i++)); do
+        printf '\033[%d;%dH%s%s%s%*s%s%s%s' \
+            "$((modal_y+i))" "$modal_x" "$CLR_BORDER" "$C_V" "$CLR_PANEL" \
+            "$((modal_w-2))" '' "$CLR_BORDER" "$C_V" "$CLR_RESET" >&9
+    done
+    printf '\033[%d;%dH%s%s%s%s%s' \
+        "$((modal_y+modal_h-1))" "$modal_x" "$CLR_BORDER" "$C_BL" "$d" "$C_BR" "$CLR_RESET" >&9
+    modal_line 1 " $title" "$CLR_TITLE"
+}
+
+modal_line() {
+    local line=$1 content=$2 style=${3:-$CLR_PANEL}
+    fit "$content" "$((modal_w-4))"
+    printf '\033[%d;%dH%s%-*s%s' "$((modal_y+line))" "$((modal_x+2))" \
+        "$style" "$((modal_w-4))" "$REPLY" "$CLR_RESET" >&9
+}
+
+chmod_dialog() {
+    local base_mode=$1 new_mode=$2 focus=$3 digits=$4
+    local row col check mask value label i rowtext
+    modal_frame 'Permessi (chmod)'
+    modal_line 2 "Corrente: $base_mode     Nuovo: $new_mode"
+    modal_line 3 '             Lett.   Scritt.  Esec.'
+    for ((row=0; row<3; row++)); do
+        case $row in 0) label='Utente';; 1) label='Gruppo';; 2) label='Altri ';; esac
+        rowtext="$label      "
+        for ((col=0; col<3; col++)); do
+            i=$((row*3+col))
+            mask=$((1 << (8-i)))
+            check=' '
+            (( perms & mask )) && check='x'
+            if (( i == focus )); then
+                rowtext+="<$check>      "
+            else
+                rowtext+="[$check]      "
+            fi
+        done
+        modal_line "$((4+row))" "$rowtext"
+    done
+    modal_line 7 "Cella attiva: $((focus/3+1)) / $((focus%3+1))"
+    if [[ -n $digits ]]; then
+        modal_line 8 "Ottale digitato: $digits" "$CLR_MARKED"
+    else
+        modal_line 8 'Frecce: naviga    Spazio: cambia' "$CLR_STATUS"
+    fi
+    modal_line 9 'Oppure digita 755, 0644 o simili'
+    modal_line 10 'Invio: Applica       Esc: Annulla' "$CLR_TITLE"
+}
+
 chmod_items() {
-    local mode path changed=0 failed=0
+    local path base_mode mode digits='' focus=0 perms mask key new_mode
+    local changed=0 failed=0
     collect
     if (( ${#targets[@]} == 0 )); then notice='Nessun elemento selezionato.'; return; fi
-    if ! ask "chmod su ${#targets[@]} elemento/i (es. 755; Esc annulla): "; then return; fi
-    mode=$REPLY
-    if [[ ! $mode =~ ^[0-7]{3,4}$ ]]; then
-        notice='Permessi non validi: usare 3 o 4 cifre ottali (es. 644, 0755).'
+    base_mode=''
+    for path in "${targets[@]}"; do
+        if [[ ! -L $path ]]; then
+            base_mode=$(stat -c %a -- "$path" 2>/dev/null) || :
+            break
+        fi
+    done
+    if [[ ! $base_mode =~ ^[0-7]{3,4}$ ]]; then
+        notice='Nessun file valido: chmod non modifica i link simbolici.'
         return
     fi
+    perms=$((8#$base_mode))
+    needs_full=1
+    while :; do
+        printf -v new_mode '%04o' "$perms"
+        chmod_dialog "$base_mode" "$new_mode" "$focus" "$digits"
+        if ! input_key; then notice='chmod annullato.'; needs_full=1; return; fi
+        case $KEY in
+            UP) focus=$(((focus+6)%9));;
+            DOWN) focus=$(((focus+3)%9));;
+            LEFT) focus=$(((focus+8)%9));;
+            RIGHT) focus=$(((focus+1)%9));;
+            F3)
+                mask=$((1 << (8-focus)))
+                perms=$((perms ^ mask))
+                digits=''
+                ;;
+            [0-9])
+                if (( ${#digits} < 4 )); then digits+=$KEY; fi
+                ;;
+            ENTER)
+                if [[ -n $digits ]]; then
+                    if [[ ! $digits =~ ^[0-7]{3,4}$ ]]; then
+                        notice='Modo ottale non valido: usa 3 o 4 cifre da 0 a 7.'
+                        needs_full=1
+                        return
+                    fi
+                    mode=$digits
+                else
+                    mode=$new_mode
+                fi
+                break
+                ;;
+            ESC|F10)
+                notice='Modifica permessi annullata.'
+                needs_full=1
+                return
+                ;;
+            MOUSE)
+                # Tre righe di caselle (4..6) nella finestra.
+                local r c
+                r=$((MOUSE_Y-modal_y-4))
+                c=$((MOUSE_X-modal_x))
+                if [[ $MOUSE_ACTION == M ]] && (( MOUSE_BTN == 0 && r>=0 && r<3 && c>=8 && c<37 )); then
+                    if (( c<18 )); then focus=$((r*3))
+                    elif (( c<28 )); then focus=$((r*3+1))
+                    else focus=$((r*3+2))
+                    fi
+                    mask=$((1 << (8-focus)))
+                    perms=$((perms ^ mask))
+                    digits=''
+                fi
+                ;;
+        esac
+    done
+    needs_full=1
     for path in "${targets[@]}"; do
-        # I link vengono saltati: chmod li seguirebbe e cambierebbe il target.
         if [[ -L $path ]]; then
             ((failed+=1))
         elif chmod -- "$mode" "$path" 2>/dev/null; then
