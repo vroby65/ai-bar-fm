@@ -19,6 +19,7 @@ F5 = b"\x1b[15~"
 F6 = b"\x1b[17~"
 F7 = b"\x1b[18~"
 F8 = b"\x1b[19~"
+F10 = b"\x1b[21~"
 DOWN = b"\x1b[B"
 UP = b"\x1b[A"
 END = b"\x1b[F"
@@ -487,8 +488,14 @@ def test_ctrl_x_symlink():
             session.key(ENTER)
             target = root / "alias.txt"
             assert target.is_symlink(), "link simbolico non creato"
-            assert os.readlink(target) == "origin.txt", "link relativo errato"
+            assert os.readlink(target) == str(root / "origin.txt"), "link deve essere assoluto"
             assert target.read_text() == "source"
+            # Spostando il link, il target assoluto deve restare risolvibile.
+            relocated_dir = root / "dest"
+            relocated_dir.mkdir()
+            relocated = relocated_dir / "moved-link.txt"
+            relocated.symlink_to(os.readlink(target))
+            assert relocated.read_text() == "source", "link assoluto rotto dopo spostamento"
             session.key(b"\x18s")
             session.type("alias.txt")
             session.key(ENTER)
@@ -515,6 +522,70 @@ def test_ctrl_x_chown_nonprivileged():
 
 
 
+
+def test_f10_quits_and_restores_terminal():
+    with tempfile.TemporaryDirectory() as tmp:
+        session = Session(pathlib.Path(tmp))
+        session.key(F10)
+        for _ in range(60):
+            pid, status = os.waitpid(session.pid, os.WNOHANG)
+            if pid:
+                assert os.waitstatus_to_exitcode(status) == 0
+                assert b"\x1b[?1000l\x1b[?1006l" in session.output
+                os.close(session.fd)
+                break
+            time.sleep(0.02)
+        else:
+            os.kill(session.pid, 15)
+            os.waitpid(session.pid, 0)
+            os.close(session.fd)
+            raise AssertionError("F10 non ha terminato il programma")
+
+
+def test_chmod_dialog_toggle_and_cancel():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        f = root / "mode.txt"
+        f.write_text("data")
+        f.chmod(0o644)
+        session = Session(root)
+        try:
+            session.key(b"\x18c")
+            assert b"Permessi (chmod)" in session.output
+            session.key(DOWN)   # gruppo / lettura
+            session.key(RIGHT)  # gruppo / scrittura
+            session.key(b" ")   # attiva il permesso scrittura al gruppo
+            session.key(ENTER)
+            assert f.stat().st_mode & 0o777 == 0o664
+            session.key(b"\x18c")
+            session.type("777")
+            session.key(b"\x1b")
+            assert f.stat().st_mode & 0o777 == 0o664, "Esc non annulla"
+        finally:
+            session.close()
+
+
+def test_chown_dialog_group_tab_navigation():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        f = root / "owned.txt"
+        f.write_text("data")
+        session = Session(root)
+        try:
+            session.key(b"\x18o")
+            assert b"Proprietario e gruppo" in session.output
+            session.type(str(os.getuid()))
+            session.key(b"\t")
+            session.type(str(os.getgid()))
+            session.key(ENTER)
+            assert f.stat().st_uid == os.getuid()
+            assert f.stat().st_gid == os.getgid()
+            assert b"chown " in session.output
+        finally:
+            session.close()
+
+
+
 if __name__ == "__main__":
     tests = [test_copy_multiple, test_cut_move, test_mkdir_and_delete, test_no_overwrite,
              test_filename_with_spaces, test_delete_cancelled, test_no_copy_into_self,
@@ -526,7 +597,9 @@ if __name__ == "__main__":
              test_no_flicker_on_cursor_navigation,
              test_lynx_arrows_enter_and_back, test_millis_italian_decimal_comma,
              test_repeated_clicks_no_crash, test_execute_interactive_script,
-             test_ctrl_x_chmod, test_ctrl_x_symlink, test_ctrl_x_chown_nonprivileged]
+             test_ctrl_x_chmod, test_ctrl_x_symlink, test_ctrl_x_chown_nonprivileged,
+             test_f10_quits_and_restores_terminal, test_chmod_dialog_toggle_and_cancel,
+             test_chown_dialog_group_tab_navigation]
     for test in tests:
         test()
         print(f"OK {test.__name__}")
