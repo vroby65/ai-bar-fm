@@ -72,6 +72,8 @@ last_click_path=''
 MOUSE_BTN=0; MOUSE_X=0; MOUSE_Y=0; MOUSE_ACTION=''
 USE_COLOR=1; USE_UNICODE=1
 CLR_RESET='' CLR_BORDER='' CLR_TITLE='' CLR_STATUS='' CLR_NOTICE='' CLR_CURSOR='' CLR_ACTION=''
+CLR_PANEL='' CLR_DIR='' CLR_EXEC='' CLR_LINK='' CLR_BADLINK=''
+CLR_MARKED='' CLR_MARK_CURSOR='' CLR_FOOTER='' CLR_HOTKEY=''
 C_TL='+' C_TR='+' C_BL='+' C_BR='+' C_H='-' C_V='|' C_LT='+' C_RT='+'
 init_theme() {
     local locale=${LC_ALL:-${LC_CTYPE:-${LANG:-}}}
@@ -79,15 +81,25 @@ init_theme() {
     [[ -n ${NO_COLOR:-} || ${ABFM_NO_COLOR:-0} == 1 || ${TERM:-} == dumb ]] && USE_COLOR=0
     [[ ${ABFM_ASCII:-0} == 1 ]] && USE_UNICODE=0
     [[ $locale != *UTF-8* && $locale != *utf8* && $locale != *utf-8* ]] && USE_UNICODE=0
+    # Colori classici MC, ANSI 16 colori.
     if (( USE_COLOR )); then
         CLR_RESET=$'\033[0m'
-        CLR_BORDER=$'\033[38;5;39m'
-        CLR_TITLE=$'\033[1;38;5;117m'
-        CLR_STATUS=$'\033[38;5;150m'
-        CLR_NOTICE=$'\033[38;5;223m'
-        CLR_CURSOR=$'\033[48;5;24;38;5;231m'
-        CLR_ACTION=$'\033[1;38;5;81m'
+        CLR_PANEL=$'\033[0;37;44m'
+        CLR_BORDER=$'\033[0;37;44m'
+        CLR_TITLE=$'\033[1;37;44m'
+        CLR_DIR=$'\033[1;37;44m'
+        CLR_EXEC=$'\033[1;32;44m'
+        CLR_LINK=$'\033[0;36;44m'
+        CLR_BADLINK=$'\033[1;31;44m'
+        CLR_MARKED=$'\033[1;33;44m'
+        CLR_CURSOR=$'\033[0;30;46m'
+        CLR_MARK_CURSOR=$'\033[1;33;46m'
+        CLR_STATUS=$'\033[0;30;47m'
+        CLR_NOTICE=$'\033[1;37;44m'
+        CLR_FOOTER=$'\033[0;37;40m'
+        CLR_HOTKEY=$'\033[0;30;46m'
     fi
+
     if (( USE_UNICODE )); then
         C_TL='┌'; C_TR='┐'; C_BL='└'; C_BR='┘'; C_H='─'; C_V='│'; C_LT='├'; C_RT='┤'
     fi
@@ -138,10 +150,9 @@ fit() {
 line_text() {
     local s=$1 style=${2:-}
     fit "$s" "$inner"
-    printf '%s%s%s' "$CLR_BORDER" "$C_V" "$CLR_RESET" >&9
-    [[ -n $style ]] && printf '%s' "$style" >&9
+    printf '%s%s%s' "$CLR_BORDER" "$C_V" "${style:-$CLR_PANEL}" >&9
     printf '%-*s' "$inner" "$REPLY" >&9
-    printf '%s%s%s\r\n' "$CLR_RESET" "$CLR_BORDER$C_V" "$CLR_RESET" >&9
+    printf '%s%s%s\r\n' "$CLR_BORDER" "$C_V" "$CLR_RESET" >&9
 }
 border() {
     local kind=${1:-mid} left right d
@@ -202,28 +213,37 @@ render_actions() {
     local -a segs=(
         '[F3] Selez.' '[F4] Copia' '[F5] Taglia' '[F6] Incolla' '[F7] CreaDir' '[F8] Elimina'
     )
-    # I comandi restano tutti cliccabili in un terminale stretto.
+    # Barra MC: tasti evidenziati su ciano, comandi su fondo nero.
     if (( inner < 89 )); then
         segs=('3Sel' '4Cop' '5Tag' '6Inc' '7Dir' '8Del')
     fi
     action_keys=(F3 F4 F5 F6 F7 F8)
     action_starts=()
     action_ends=()
-    local content='' seg offset=0 base=2 i start end
-    for i in "${!segs[@]}"; do
-        seg=${segs[i]}
-        if [[ -n $content ]]; then
-            content+='  '
-            ((offset+=2))
+    local seg idx used=1 prefix suffix start width
+    printf '%s%s%s ' "$CLR_BORDER" "$C_V" "$CLR_FOOTER" >&9
+    for idx in "${!segs[@]}"; do
+        seg=${segs[idx]}
+        if (( idx > 0 )); then
+            printf '  ' >&9
+            ((used+=2))
         fi
-        start=$((base + offset))
-        content+=$seg
-        ((offset+=${#seg}))
-        end=$((base + offset - 1))
-        action_starts[i]=$start
-        action_ends[i]=$end
+        start=$((used + 2))
+        if [[ $seg == \[* ]]; then
+            prefix=${seg%%]*}']'
+            suffix=${seg#"$prefix"}
+        else
+            prefix=${seg:0:1}
+            suffix=${seg:1}
+        fi
+        printf '%s%s%s%s' "$CLR_HOTKEY" "$prefix" "$CLR_FOOTER" "$suffix" >&9
+        ((used+=${#seg}))
+        action_starts[idx]=$start
+        action_ends[idx]=$((used+1))
     done
-    line_text "$content" "$CLR_ACTION"
+    width=$((inner-used))
+    ((width > 0)) && printf '%*s' "$width" '' >&9
+    printf '%s%s%s\r\n' "$CLR_BORDER" "$C_V" "$CLR_RESET" >&9
 }
 
 draw() {
@@ -249,18 +269,29 @@ draw() {
         item=${entries[n]}
         selected=' '
         [[ -v marks["$item"] ]] && selected='*'
+        row_style=$CLR_PANEL
         if [[ $item == '..' ]]; then
-            kind='^'; label='../'
+            kind='^'; label='../'; row_style=$CLR_DIR
         elif [[ -L $item ]]; then
             kind='@'; label="${item##*/}"
+            if [[ -e $item ]]; then
+                row_style=$CLR_LINK
+            else
+                row_style=$CLR_BADLINK
+            fi
         elif [[ -d $item ]]; then
-            kind='d'; label="${item##*/}/"
+            kind='d'; label="${item##*/}/"; row_style=$CLR_DIR
+        elif [[ -f $item && -x $item ]]; then
+            kind='*'; label="${item##*/}"; row_style=$CLR_EXEC
         else
             kind='f'; label="${item##*/}"
         fi
+        if [[ -v marks["$item"] ]]; then row_style=$CLR_MARKED; fi
+        if (( n == cursor )); then
+            row_style=$CLR_CURSOR
+            [[ -v marks["$item"] ]] && row_style=$CLR_MARK_CURSOR
+        fi
         fit " $selected$kind $label" "$inner"
-        row_style=''
-        (( n == cursor )) && row_style=$CLR_CURSOR
         line_text "$REPLY" "$row_style"
     done
     border mid
