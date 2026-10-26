@@ -2,7 +2,7 @@
 
 File manager **TUI a una sola lista**, ispirato ai tasti funzione di Midnight Commander e pensato per una piccola finestra terminale in **ai-bar**.
 
-Il programma è scritto in **Bash 4+**, usa **mouse xterm/SGR**, la **palette classica a 16 colori di Midnight Commander** e cornici Unicode box-drawing (`┌─┐`, `│ │`, `└─┘`), con fallback ASCII. **Niente ncurses, dialog, fzf o dipendenze TUI**: su Linux servono soltanto Bash, `stty` e i comandi GNU di base (`cp`, `mv`, `mkdir`, `rm`).
+Il programma è scritto in **Bash 4+**, usa **mouse xterm/SGR**, il **tema grigio grafite** con convenzioni di navigazione simili a Lynx e cornici Unicode box-drawing (`┌─┐`, `│ │`, `└─┘`), con fallback ASCII. **Niente ncurses, dialog, fzf o dipendenze TUI**: su Linux servono soltanto Bash, `stty` e i comandi GNU di base (`cp`, `mv`, `mkdir`, `rm`).
 
 ## Installazione rapida (un solo comando)
 
@@ -48,23 +48,21 @@ ABFM_NO_COLOR=1 ai-bar-fm
 ABFM_ASCII=1 ai-bar-fm
 ```
 
-## Aspetto classico Midnight Commander
+## Tema grigio e navigazione stile Lynx
 
-L'interfaccia a **pannello singolo** segue le convenzioni dei colori classici di MC, senza dipendere dalla sua installazione:
+Il pannello usa uno **sfondo grigio grafite** (ANSI 256 colori), evitando l'azzurro intenso del tema precedente. La riga attiva e' in grigio chiaro con testo scuro. Restano i colori distintivi per directory, eseguibili, collegamenti simbolici, elementi marcati e la barra F3–F8.
 
-| Elemento | Aspetto |
-| --- | --- |
-| Pannello e file ordinari | Grigio chiaro su blu |
-| Directory | Bianco brillante su blu |
-| File eseguibili | Verde brillante su blu |
-| Collegamenti simbolici | Ciano su blu (rosso se interrotti) |
-| Riga corrente | Nero su ciano |
-| File marcati | Giallo su blu, oppure giallo su ciano se correnti |
-| Barra comandi F3-F8 | Sfondo nero e tasti evidenziati in ciano |
+La navigazione prende ispirazione da Lynx:
 
-La barra mantiene **F3 seleziona, F4 copia, F5 taglia, F6 incolla, F7 crea directory, F8 elimina**, cioe' le scorciatoie proprie di questo progetto; non altera i tasti per imitare MC. Le aree cliccabili restano disponibili anche in una finestra stretta di ai-bar.
+- **Su / Giu** (o `j` / `k`): sposta la riga evidenziata
+- **Destra / Invio** (o `l`): entra nella directory evidenziata
+- **Sinistra / Backspace** (o `h`): torna alla directory superiore
 
-L'uso di **colori ANSI standard**, anziche' di sequenze 256-color, consente il funzionamento con i terminali tradizionali. Si possono disattivare i colori con `ABFM_NO_COLOR=1` (oppure `NO_COLOR=1`) e forzare i bordi ASCII con `ABFM_ASCII=1`.
+Mouse, doppio clic, rotella e funzioni F3–F8 rimangono attivi. Le directory continuano a mostrare il prefisso `/` e i file nascosti sono visibili per impostazione predefinita. Le opzioni `ABFM_NO_COLOR=1` (o `NO_COLOR`) e `ABFM_ASCII=1` permettono di disabilitare i colori e le cornici Unicode.
+
+### Correzione clic ripetuti e locale italiana
+
+Il calcolo dei millisecondi per riconoscere il doppio clic normalizza `EPOCHREALTIME`: accetta **sia la virgola sia il punto decimale**. Questo evita l'errore aritmetico che poteva comparire alla riga 194 con una locale italiana.
 
 ## Tasti
 
@@ -78,8 +76,8 @@ L'uso di **colori ANSI standard**, anziche' di sequenze 256-color, consente il f
 | **F8** | Elimina file e directory selezionati, dopo conferma (`s`) |
 | ↑ / ↓, `j` / `k` | Muovi il cursore |
 | PagSu / PagGiù, Home / End | Scorrimento veloce |
-| Invio | Apri directory corrente |
-| Backspace | Vai alla directory padre |
+| **Freccia destra** / Invio / `l` | Entra nella directory corrente (Lynx) |
+| **Freccia sinistra** / Backspace / `h` | Torna alla directory superiore (Lynx) |
 | Mouse sinistro | Seleziona la riga; un doppio click entra nella directory |
 | Click sull'indicatore di selezione (colonna 3) | Seleziona o deseleziona l'elemento; il bordo esterno non è cliccabile |
 | Rotella mouse | Scorre l'elenco |
