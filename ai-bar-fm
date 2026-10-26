@@ -589,7 +589,7 @@ run_executable() {
     stty "$original_tty" <&9 || return
     printf '\r\nai-bar-fm: esecuzione di %s\r\n' "${path##*/}" >&9
     # Invocazione diretta senza eval e senza interpolare il nome.
-    "$path" <&9 >&9 2>&9
+    (cd -- "$cwd" && "$path") <&9 >&9 2>&9
     status=$?
     printf '\r\n[Uscita: %d] Premi Invio per tornare al file manager...' "$status" >&9
     IFS= read -r -u9 _unused || :
