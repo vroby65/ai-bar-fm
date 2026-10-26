@@ -81,13 +81,17 @@ L'uso di **colori ANSI standard**, anziche' di sequenze 256-color, consente il f
 | Invio | Apri directory corrente |
 | Backspace | Vai alla directory padre |
 | Mouse sinistro | Seleziona la riga; un doppio click entra nella directory |
-| Click sull'indicatore di selezione | Seleziona o deseleziona l'elemento |
+| Click sull'indicatore di selezione (colonna 3) | Seleziona o deseleziona l'elemento; il bordo esterno non è cliccabile |
 | Rotella mouse | Scorre l'elenco |
 | Click sulla barra F3–F8 | Attiva la relativa funzione, anche nella barra compatta |
 | `r` | Aggiorna |
 | `q` | Esci |
 
-Le directory appaiono prima dei file, inclusi gli elementi nascosti. Il simbolo `@` indica un collegamento simbolico. La riga `../` permette di tornare al livello precedente. I segni di selezione vengono azzerati quando si cambia directory, ma gli appunti restano disponibili finché l'applicazione è aperta.
+Le directory appaiono prima dei file e hanno **`/` davanti al nome** (per esempio `/Documenti`), secondo la convenzione visiva di MC. I file e le directory **nascosti (`.nome`) sono visibili per impostazione predefinita**. Il simbolo `@` indica un collegamento simbolico. La riga `/..` permette di tornare al livello precedente. I segni di selezione vengono azzerati quando si cambia directory, ma gli appunti restano disponibili finché l'applicazione è aperta.
+
+## Ridisegno senza sfarfallio
+
+I movimenti del cursore aggiornano soltanto la riga precedente e quella corrente; il terminale non viene cancellato a ogni pressione di tasto. Il ridisegno completo è riservato a cambio di directory, scorrimento, aggiornamento o ridimensionamento. Il bordo in fondo non invia più un ritorno a capo che faceva scorrere lo schermo e poteva sfalsare le coordinate mouse.
 
 ## Sicurezza e limiti della versione iniziale
 

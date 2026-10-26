@@ -322,13 +322,73 @@ def test_ascii_fallback():
         finally:
             s.close()
 
+
+def test_hidden_and_mc_directory_prefix():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "folder").mkdir()
+        (root / ".hiddenfile").write_text("secret")
+        (root / ".hiddendir").mkdir()
+        session = Session(root)
+        try:
+            screen = bytes(session.output)
+            assert b"/.hiddendir" in screen, "Directory nascosta non visibile o senza prefisso /"
+            assert b"/folder" in screen, "Le directory devono iniziare con /"
+            assert b".hiddenfile" in screen, "File nascosti non visibili di default"
+            assert b"folder/" not in screen, "La barra delle directory e' dalla parte sbagliata"
+        finally:
+            session.close()
+
+
+def test_mouse_exact_columns_and_rows():
+    with tempfile.TemporaryDirectory() as tmp:
+        src, dst = fixture(pathlib.Path(tmp))
+        session = Session(src)
+        try:
+            # Y=6 corrisponde ad alpha.txt, dopo ../ e tree.
+            # X=4 e' il prefisso, non il marcatore * (solo X=3).
+            session.mouse(0, 4, 6)
+            session.mouse(0, 1, 5)  # bordo: non deve cambiare riga
+            session.key(F4)
+            session.key(BACK)
+            session.key(ENTER)
+            session.key(F6)
+            assert (dst / "alpha.txt").is_file(), "Hitbox mouse sfalsata"
+            assert not (dst / "tree").exists(), "Click sul bordo ha cambiato riga"
+        finally:
+            session.close()
+
+
+def test_no_flicker_on_cursor_navigation():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        for n in range(6):
+            (root / f"f{n}.txt").write_text("v")
+        session = Session(root)
+        try:
+            initial = bytes(session.output)
+            assert initial.count(b"\x1b[2J") == 0, "Clear-screen iniziale superfluo"
+            assert initial.endswith(b"\x1b[0m"), "CRLF all'ultima riga del terminale"
+            length = len(session.output)
+            session.key(DOWN)
+            fresh = bytes(session.output[length:])
+            assert b"\x1b[2J" not in fresh, "Sfarfallio: clear-screen a ogni tasto"
+            assert "┌".encode() not in fresh, "Ridisegno completo ad ogni movimento"
+            assert len(fresh) < 900, "Ridisegno troppo esteso per un solo movimento"
+        finally:
+            session.close()
+
+
+
 if __name__ == "__main__":
     tests = [test_copy_multiple, test_cut_move, test_mkdir_and_delete, test_no_overwrite,
              test_filename_with_spaces, test_delete_cancelled, test_no_copy_into_self,
              test_mouse_double_click_opens_folder, test_mouse_button_mkdir,
              test_mouse_prompt_ignores_click, test_mouse_mark_copy,
              test_mouse_compact_bar_and_wheel, test_mc_palette_and_highlighting,
-             test_no_color_fallback, test_ascii_fallback]
+             test_no_color_fallback, test_ascii_fallback,
+             test_hidden_and_mc_directory_prefix, test_mouse_exact_columns_and_rows,
+             test_no_flicker_on_cursor_navigation]
     for test in tests:
         test()
         print(f"OK {test.__name__}")
