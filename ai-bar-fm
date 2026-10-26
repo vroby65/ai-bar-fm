@@ -235,13 +235,17 @@ render_actions() {
         '[F3] Selez.' '[F4] Copia' '[F5] Taglia' '[F6] Incolla' '[F7] CreaDir' '[F8] Elimina' '[F10] Esci'
     )
     # Barra MC: tasti evidenziati su ciano, comandi su fondo nero.
-    if (( inner < 98 )); then
-        segs=('3Sel' '4Cop' '5Tag' '6Inc' '7Dir' '8Del' '10Esci')
-    fi
-    if (( inner < 56 )); then
-        segs=('3' '4' '5' '6' '7' '8' '10')
-    fi
     action_keys=(F3 F4 F5 F6 F7 F8 F10)
+    if (( inner < 89 )); then
+        # Mantieni inalterate le hitbox F3-F8 della barra compatta.
+        segs=('3Sel' '4Cop' '5Tag' '6Inc' '7Dir' '8Del')
+        action_keys=(F3 F4 F5 F6 F7 F8)
+        if (( inner >= 44 )); then
+            segs+=('10Esci')
+            action_keys+=(F10)
+        fi
+        # Sotto 44 colonne F10 resta disponibile dalla tastiera.
+    fi
     action_starts=()
     action_ends=()
     local seg idx used=1 prefix suffix start width
