@@ -2,7 +2,7 @@
 
 File manager **TUI a una sola lista**, ispirato ai tasti funzione di Midnight Commander e pensato per una piccola finestra terminale in **ai-bar**.
 
-Il programma è scritto in **Bash 4+**, usa **mouse xterm/SGR**, colori ANSI e cornici Unicode box-drawing (`┌─┐`, `│ │`, `└─┘`), con fallback ASCII. **Niente ncurses, dialog, fzf o dipendenze TUI**: su Linux servono soltanto Bash, `stty` e i comandi GNU di base (`cp`, `mv`, `mkdir`, `rm`).
+Il programma è scritto in **Bash 4+**, usa **mouse xterm/SGR**, la **palette classica a 16 colori di Midnight Commander** e cornici Unicode box-drawing (`┌─┐`, `│ │`, `└─┘`), con fallback ASCII. **Niente ncurses, dialog, fzf o dipendenze TUI**: su Linux servono soltanto Bash, `stty` e i comandi GNU di base (`cp`, `mv`, `mkdir`, `rm`).
 
 ## Installazione rapida (un solo comando)
 
@@ -47,6 +47,24 @@ Per utilizzare l’interfaccia senza colori o con cornici ASCII:
 ABFM_NO_COLOR=1 ai-bar-fm
 ABFM_ASCII=1 ai-bar-fm
 ```
+
+## Aspetto classico Midnight Commander
+
+L'interfaccia a **pannello singolo** segue le convenzioni dei colori classici di MC, senza dipendere dalla sua installazione:
+
+| Elemento | Aspetto |
+| --- | --- |
+| Pannello e file ordinari | Grigio chiaro su blu |
+| Directory | Bianco brillante su blu |
+| File eseguibili | Verde brillante su blu |
+| Collegamenti simbolici | Ciano su blu (rosso se interrotti) |
+| Riga corrente | Nero su ciano |
+| File marcati | Giallo su blu, oppure giallo su ciano se correnti |
+| Barra comandi F3-F8 | Sfondo nero e tasti evidenziati in ciano |
+
+La barra mantiene **F3 seleziona, F4 copia, F5 taglia, F6 incolla, F7 crea directory, F8 elimina**, cioe' le scorciatoie proprie di questo progetto; non altera i tasti per imitare MC. Le aree cliccabili restano disponibili anche in una finestra stretta di ai-bar.
+
+L'uso di **colori ANSI standard**, anziche' di sequenze 256-color, consente il funzionamento con i terminali tradizionali. Si possono disattivare i colori con `ABFM_NO_COLOR=1` (oppure `NO_COLOR=1`) e forzare i bordi ASCII con `ABFM_ASCII=1`.
 
 ## Tasti
 
